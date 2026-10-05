@@ -80,3 +80,36 @@ def test_cleaning_preview_and_apply_preserve_original_and_create_derived_copy(tm
     repeated = client.post(f"/datasets/{original['id']}/cleaning/apply", json={"operations": operations})
     assert repeated.status_code == 200
     assert repeated.json()["reused"] is True
+
+
+def test_sql_query_endpoint():
+    res = client.post("/sql/query", json={"dataset_id": "demo-sales", "query": "SELECT region, COUNT(*) as count FROM dataset GROUP BY region"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["columns"] == ["region", "count"]
+    assert len(data["rows"]) == 4
+    assert data["row_count"] == 4
+    assert data["duration_ms"] >= 0
+
+
+def test_export_dataset_endpoints():
+    csv_res = client.get("/datasets/demo-sales/export?format=csv")
+    assert csv_res.status_code == 200
+    assert "text/csv" in csv_res.headers["content-type"]
+    assert "attachment;" in csv_res.headers["content-disposition"]
+    assert len(csv_res.content) > 1000
+
+    xlsx_res = client.get("/datasets/demo-sales/export?format=xlsx")
+    assert xlsx_res.status_code == 200
+    assert "spreadsheetml" in xlsx_res.headers["content-type"]
+    assert len(xlsx_res.content) > 1000
+
+
+def test_health_reports_database_and_capabilities():
+    res = client.get("/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["database"] in {"sqlite", "postgresql"}
+    assert "statistical_tests" in data["capabilities"]
+    assert "clustering" in data["capabilities"]
+    assert "forecasting" in data["capabilities"]

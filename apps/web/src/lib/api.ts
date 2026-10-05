@@ -30,7 +30,14 @@ export type Dataset = {
   };
 };
 
-export type CleaningOperation = "normalize_missing_values" | "trim_whitespace" | "remove_exact_duplicates";
+export type CleaningOperation =
+  | "normalize_missing_values"
+  | "trim_whitespace"
+  | "remove_exact_duplicates"
+  | "clip_outliers"
+  | "impute_missing_median"
+  | "impute_missing_mode"
+  | "drop_high_missing_columns";
 
 export type CleaningIssue = {
   operation: CleaningOperation;
@@ -45,7 +52,14 @@ export type CleaningIssue = {
 export type CleaningPreview = {
   source_dataset_id: string;
   operations: CleaningOperation[];
-  changes: { missing_values_normalized: number; text_values_trimmed: number; rows_removed: number };
+  changes: {
+    missing_values_normalized: number;
+    text_values_trimmed: number;
+    rows_removed: number;
+    outliers_clipped?: number;
+    values_imputed?: number;
+    columns_dropped?: number;
+  };
   before: Dataset["profile"];
   after: Dataset["profile"];
   sample_before: Record<string, unknown>[];
@@ -71,6 +85,17 @@ export type TraceStep = {
   output_summary: Record<string, unknown>;
 };
 
+export type Visualization = {
+  kind: string;
+  purpose?: string;
+  title: string;
+  x_key: string;
+  y_key: string;
+  category_key?: string;
+  series?: string[];
+  data: Record<string, string | number>[];
+};
+
 export type Analysis = {
   run_id: string;
   dataset_id: string;
@@ -85,10 +110,16 @@ export type Analysis = {
   latency_ms: number;
   token_usage: number | null;
   estimated_cost_usd: number | null;
+  model_name?: string | null;
   validation: { passed: boolean; checked: string[]; failed: string[] };
 };
 
-export type Visualization = { kind: string; purpose?: string; title: string; x_key: string; y_key: string; series?: string[]; data: Record<string, string | number>[] };
+export type SqlQueryResult = {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  row_count: number;
+  duration_ms: number;
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { ...init, cache: "no-store" });
@@ -103,9 +134,24 @@ export const api = {
   datasets: () => request<Dataset[]>("/datasets"),
   dataset: (id: string) => request<Dataset>(`/datasets/${encodeURIComponent(id)}`),
   cleaningPlan: (id: string) => request<{ dataset_id: string; issues: CleaningIssue[] }>(`/datasets/${encodeURIComponent(id)}/cleaning`),
-  previewCleaning: (id: string, operations: CleaningOperation[]) => request<CleaningPreview>(`/datasets/${encodeURIComponent(id)}/cleaning/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operations }) }),
-  applyCleaning: (id: string, operations: CleaningOperation[]) => request<CleaningApplyResult>(`/datasets/${encodeURIComponent(id)}/cleaning/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operations }) }),
-  analyze: (datasetId: string, question: string) => request<Analysis>("/analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataset_id: datasetId, question }) }),
+  previewCleaning: (id: string, operations: CleaningOperation[]) =>
+    request<CleaningPreview>(`/datasets/${encodeURIComponent(id)}/cleaning/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operations }),
+    }),
+  applyCleaning: (id: string, operations: CleaningOperation[]) =>
+    request<CleaningApplyResult>(`/datasets/${encodeURIComponent(id)}/cleaning/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operations }),
+    }),
+  analyze: (datasetId: string, question: string) =>
+    request<Analysis>("/analysis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset_id: datasetId, question }),
+    }),
   analysis: (runId: string) => request<Analysis>(`/analysis/${encodeURIComponent(runId)}`),
   upload: async (file: File) => {
     const form = new FormData();
@@ -117,6 +163,12 @@ export const api = {
     if (!response.ok) throw new Error("Could not generate this report.");
     return response.text();
   },
+  querySql: (datasetId: string, query: string) =>
+    request<SqlQueryResult>("/sql/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataset_id: datasetId, query }),
+    }),
   evaluate: () => request<EvaluationReport>("/evaluations/run", { method: "POST" }),
 };
 

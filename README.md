@@ -65,9 +65,11 @@ The web app is served on port 3000 and FastAPI on port 8000. PostgreSQL with pgv
 | POST | `/datasets/upload` | Validate and ingest CSV, JSON, or XLSX |
 | GET | `/datasets` | List datasets |
 | GET | `/datasets/{id}` | Schema and data profile |
+| GET | `/datasets/{id}/export` | Export dataset to CSV or Excel (`?format=csv\|xlsx`) |
 | GET | `/datasets/{id}/cleaning` | Inspect supported cleaning suggestions |
 | POST | `/datasets/{id}/cleaning/preview` | Preview selected cleaning operations |
 | POST | `/datasets/{id}/cleaning/apply` | Create a cleaned copy while preserving the source |
+| POST | `/sql/query` | Execute safe read-only SQL queries on the active dataset |
 | POST | `/analysis` | Run a question against a dataset |
 | GET | `/analysis/{id}` | Fetch a run |
 | GET | `/analysis/{id}/trace` | Inspect tool trace |

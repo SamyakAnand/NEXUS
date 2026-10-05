@@ -11,9 +11,10 @@ import pandas as pd
 from scipy.stats import linregress
 from sklearn.ensemble import IsolationForest
 
+from .llm import get_configured_provider, plan_with_llm, synthesize_with_llm
 from .profiling import profile_frame
 from .schemas import AnalysisResponse, Finding, TraceStep
-
+from .stats import run_clustering, run_enhanced_forecast, run_statistical_tests
 
 DENIED_SQL = re.compile(r"\b(attach|detach|pragma|drop|delete|update|insert|alter|create|replace|vacuum|load_extension)\b|;", re.I)
 
@@ -25,11 +26,15 @@ def _tool_plan(question: str, frame: pd.DataFrame) -> list[str]:
         tools.append("anomaly_detection")
     if any(w in q for w in ("correlat", "relationship", "related")):
         tools.append("correlation_analysis")
-    if any(w in q for w in ("forecast", "predict", "next month", "future")):
+    if any(w in q for w in ("cluster", "segment", "pca", "kmeans", "grouping")):
+        tools.append("clustering")
+    if any(w in q for w in ("statist", "hypothesis", "significan", "t-test", "difference", "anova", "normality", "distribution", "variance")):
+        tools.append("statistical_tests")
+    if any(w in q for w in ("forecast", "predict", "next month", "future", "projection")):
         tools.append("forecasting")
     if any(w in q for w in ("which", "highest", "lowest", "compare", "by region", "by product", "category", "decline", "increase")):
         tools.append("sql_query")
-    if any(w in q for w in ("chart", "plot", "show", "trend", "change", "decline", "increase", "correlat")):
+    if any(w in q for w in ("chart", "plot", "show", "trend", "change", "decline", "increase", "correlat", "forecast", "cluster")):
         tools.append("visualization_generator")
     return list(dict.fromkeys(tools))
 
@@ -40,7 +45,6 @@ def _safe_sql_aggregate(frame: pd.DataFrame, metric: str, group: str) -> tuple[l
         raise ValueError("Selected fields do not exist in the dataset schema.")
     if not pd.api.types.is_numeric_dtype(frame[metric]):
         raise ValueError("The selected metric is not numeric.")
-    # Identifiers are quoted after exact allow-list membership above.
     quote = lambda identifier: '"' + identifier.replace('"', '""') + '"'
     query = f'SELECT {quote(group)} AS group_value, AVG({quote(metric)}) AS mean_value, SUM({quote(metric)}) AS sum_value, COUNT(*) AS row_count FROM dataset GROUP BY {quote(group)} ORDER BY sum_value DESC LIMIT 20'
     validate_read_only_sql(query)
@@ -56,6 +60,20 @@ def validate_read_only_sql(query: str) -> None:
     normalized = query.strip()
     if not normalized[:6].casefold() == "select" or DENIED_SQL.search(normalized):
         raise ValueError("Only one read-only SELECT statement is allowed.")
+
+
+def execute_custom_sql(frame: pd.DataFrame, query: str) -> tuple[list[str], list[dict[str, Any]], float]:
+    """Execute a read-only query provided by an analyst against the dataset."""
+    validate_read_only_sql(query)
+    started = time.perf_counter()
+    with sqlite3.connect(":memory:") as conn:
+        frame.to_sql("dataset", conn, index=False)
+        conn.execute("PRAGMA query_only = ON")
+        df_result = pd.read_sql_query(query, conn)
+    duration_ms = round((time.perf_counter() - started) * 1000, 2)
+    cols = [str(c) for c in df_result.columns]
+    records = df_result.head(500).to_dict(orient="records")
+    return cols, records, duration_ms
 
 
 def _choose_metric(frame: pd.DataFrame, question: str) -> str | None:
@@ -88,6 +106,9 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
     started = time.perf_counter()
     run_id = str(uuid.uuid4())
     trace: list[TraceStep] = []
+    total_tokens = 0
+    total_cost = 0.0
+    active_model_name: str | None = None
 
     def step(name: str, status: str, began: float, summary: str, inp: dict[str, Any] | None = None, out: dict[str, Any] | None = None) -> None:
         trace.append(TraceStep(name=name, status=status, duration_ms=round((time.perf_counter() - began) * 1000, 2), summary=summary, input_summary=inp or {}, output_summary=out or {}))
@@ -97,20 +118,37 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
     step("dataset_profiler", "completed", mark, f"Profiled {profile['row_count']:,} rows and {profile['column_count']} columns.", out={"rows": profile["row_count"], "columns": profile["column_count"], "missing_cells": profile["missing_cells"]})
     trace.append(TraceStep(name="schema_inspector", status="completed", duration_ms=0.0, summary="Classified fields and cardinality from the dataset profile.", input_summary={"column_count": profile["column_count"]}, output_summary={"numeric": profile["numeric_columns"], "categorical": profile["categorical_columns"], "temporal": profile["temporal_columns"]}))
 
+    # Plan analysis with LLM if available, else deterministic heuristics
     mark = time.perf_counter()
-    tools = tools_override or _tool_plan(question, frame)
-    metric = _choose_metric(frame, question)
-    group = _choose_group(frame, metric, question) if metric else None
-    step("analysis_planner", "completed", mark, "Selected tools from question intent and available schema.", {"question": question[:160]}, {"tools": tools, "metric": metric, "group": group})
+    llm_plan = None
+    provider_info = get_configured_provider()
+    if provider_info.get("enabled"):
+        llm_plan = plan_with_llm(question, profile)
+
+    if llm_plan and llm_plan.get("tools"):
+        tools = tools_override or llm_plan["tools"]
+        metric = llm_plan.get("metric") or _choose_metric(frame, question)
+        group = llm_plan.get("group") or (_choose_group(frame, metric, question) if metric else None)
+        total_tokens += llm_plan.get("tokens", 0)
+        total_cost += llm_plan.get("cost", 0.0)
+        active_model_name = llm_plan.get("model")
+        step("analysis_planner", "completed", mark, f"LLM agent ({active_model_name}) decomposed question and structured tool pipeline.", {"question": question[:160]}, {"tools": tools, "metric": metric, "group": group, "intent": llm_plan.get("analytical_intent")})
+    else:
+        tools = tools_override or _tool_plan(question, frame)
+        metric = _choose_metric(frame, question)
+        group = _choose_group(frame, metric, question) if metric else None
+        step("analysis_planner", "completed", mark, "Selected tools from question intent and available schema.", {"question": question[:160]}, {"tools": tools, "metric": metric, "group": group})
 
     findings: list[Finding] = []
     visualization: dict[str, Any] | None = None
     visualizations: list[dict[str, Any]] = []
     result_rows: list[dict[str, Any]] = []
+    stats_summary: dict[str, Any] = {}
+
     if metric:
         mark = time.perf_counter()
-        stats = {"mean": round(float(frame[metric].mean()), 4), "median": round(float(frame[metric].median()), 4), "std": round(float(frame[metric].std()), 4) if len(frame) > 1 else 0}
-        step("pandas_analysis", "completed", mark, "Computed deterministic summary statistics from the uploaded frame.", {"metric": metric}, stats)
+        stats_summary = {"mean": round(float(frame[metric].mean()), 4), "median": round(float(frame[metric].median()), 4), "std": round(float(frame[metric].std()), 4) if len(frame) > 1 else 0}
+        step("pandas_analysis", "completed", mark, "Computed deterministic summary statistics from the uploaded frame.", {"metric": metric}, stats_summary)
     else:
         findings.append(Finding(title="Dataset profiled", detail=f"The dataset contains {profile['row_count']:,} rows and {profile['column_count']} columns. Ask about a numeric measure or a column to compare segments.", confidence="high", evidence=["Dataset profile computed directly from uploaded records."], caveat="No numeric measure and grouping field could be inferred for this question."))
         step("pandas_analysis", "warning", time.perf_counter(), "No compatible metric/group pair was detected; returned schema guidance.", out={"numeric_columns": profile["numeric_columns"]})
@@ -131,6 +169,22 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
                 visualization = segment_chart
         else:
             step("sql_query", "warning", mark, "No numeric measure and grouping field were available for a safe aggregation.", out={"numeric_columns": profile["numeric_columns"], "categorical_columns": profile["categorical_columns"]})
+
+    if "statistical_tests" in tools and metric:
+        mark = time.perf_counter()
+        stat_findings, test_summary = run_statistical_tests(frame, metric, group)
+        findings.extend(stat_findings)
+        step("statistical_tests", "completed" if stat_findings else "warning", mark, f"Evaluated normality and group significance tests for {metric}.", {"metric": metric, "group": group}, test_summary)
+
+    if "clustering" in tools:
+        mark = time.perf_counter()
+        cluster_findings, cluster_chart = run_clustering(frame)
+        findings.extend(cluster_findings)
+        if cluster_chart:
+            visualizations.append(cluster_chart)
+            if visualization is None:
+                visualization = cluster_chart
+        step("clustering", "completed" if cluster_findings else "warning", mark, "K-Means segmentation and 2D PCA projection evaluated on numeric dimensions.", {"features": profile["numeric_columns"]}, {"clusters": len(cluster_findings)})
 
     if "anomaly_detection" in tools:
         mark = time.perf_counter()
@@ -168,9 +222,8 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
         if pairs:
             step("correlation_analysis", "completed", mark, "Computed Pearson correlations across numeric columns.", {"numeric_columns": list(numeric.columns)}, {"pairs": len(pairs), "strongest": pairs[0]})
 
-    # Time series output is derived from the data, never from a canned result.
     date_cols = [c for c in frame.columns if "date" in str(c).casefold() or "time" in str(c).casefold()]
-    if metric and date_cols and any(w in question.casefold() for w in ("trend", "change", "decline", "increase", "month", "over time", "sales")):
+    if metric and date_cols and any(w in question.casefold() for w in ("trend", "change", "decline", "increase", "month", "over time", "sales", "forecast", "predict")):
         date_col = date_cols[0]
         dates = pd.to_datetime(frame[date_col], errors="coerce")
         if getattr(dates.dt, "tz", None) is not None:
@@ -202,17 +255,15 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
             peak = grouped.loc[grouped[metric].idxmax()]
             findings.append(Finding(title=f"Peak month for {metric}", detail=f"{peak['period']} had the highest monthly {metric} at {float(peak[metric]):,.2f}.", confidence="high", evidence=[f"Summed {metric} by calendar month from {date_col}.", f"Compared {len(grouped)} available monthly periods."], caveat="Partial periods can appear lower than complete months."))
             findings.append(Finding(title=f"Latest month {('increased' if pct is not None and pct >= 0 else 'decreased')} versus prior month", detail=f"{metric.title()} moved by {pct:+.1f}% between {grouped.iloc[-2]['period']} and {grouped.iloc[-1]['period']}." if pct is not None else "The prior period is zero, so a percentage change cannot be calculated.", confidence="high", evidence=[f"Grouped {metric} by calendar month from {date_col}.", f"{len(grouped)} monthly periods were available."], caveat="Month-to-month changes may reflect seasonality or incomplete periods."))
+
             if "forecasting" in tools and len(grouped) >= 4:
                 mark = time.perf_counter()
-                x = np.arange(len(grouped), dtype=float)
-                y = grouped[metric].astype(float).to_numpy()
-                regression = linregress(x, y)
-                forecast_rows = [{"period": f"P+{step_index}", metric: round(float(regression.intercept + regression.slope * (len(y) + step_index - 1)), 2)} for step_index in range(1, 4)]
-                findings.append(Finding(title="Short-horizon linear forecast", detail=f"A simple linear trend projects {metric} at {forecast_rows[-1][metric]:,.2f} three periods ahead (R² {regression.rvalue ** 2:.2f}).", confidence="low", evidence=[f"OLS trend fitted to {len(y)} monthly aggregate values from {date_col}."], caveat="Illustrative extrapolation only; seasonality, regime changes, and uncertainty intervals are not modeled."))
-                trend_chart = {"kind": "line", "purpose": "trend", "title": f"Monthly {metric} · trend projection", "x_key": "period", "y_key": metric, "data": grouped.tail(24).to_dict(orient="records") + forecast_rows}
-                visualizations[-1] = trend_chart
-                visualization = trend_chart
-                step("forecasting", "completed", mark, "Fitted a simple linear trend to monthly aggregates.", {"periods": len(y)}, {"horizon": 3, "r_squared": round(regression.rvalue ** 2, 3)})
+                f_findings, f_chart = run_enhanced_forecast(frame, metric, date_col, horizon=3)
+                findings.extend(f_findings)
+                if f_chart:
+                    visualizations.append(f_chart)
+                    visualization = f_chart
+                step("forecasting", "completed", mark, "Fitted trend with 95% confidence prediction intervals.", {"periods": len(grouped)}, {"horizon": 3})
     elif "forecasting" in tools:
         step("forecasting", "warning", time.perf_counter(), "Forecasting requires a recognizable date field and at least four aggregated periods.", out={"date_columns": date_cols})
 
@@ -228,10 +279,45 @@ def _run_analysis_core(dataset_id: str, frame: pd.DataFrame, question: str, prof
     if not valid:
         findings = [Finding(title="Analysis needs a narrower question", detail="The dataset was profiled, but a supported result could not be derived from the available columns.", confidence="low", evidence=["Dataset schema inspected."], caveat="Try naming a numeric measure and a segment or time period.")]
 
+    # Synthesis: LLM-backed if provider active, else deterministic
     answer = " ".join(f.detail for f in findings[:2])
-    trace.append(TraceStep(name="insight_synthesis", status="completed", duration_ms=0.0, summary="Assembled a concise answer from validated findings and their evidence.", input_summary={"finding_count": len(findings)}, output_summary={"evidence_items": sum(len(f.evidence) for f in findings)}))
+    if provider_info.get("enabled"):
+        synth_answer, synth_tokens, synth_cost = synthesize_with_llm(
+            question, [f.model_dump() for f in findings], profile, stats_summary
+        )
+        if synth_answer:
+            answer = synth_answer
+            total_tokens += synth_tokens
+            total_cost += synth_cost
+            active_model_name = provider_info["model"]
+
+    trace.append(TraceStep(
+        name="insight_synthesis",
+        status="completed",
+        duration_ms=0.0,
+        summary=f"Assembled evidence-backed synthesis{' using ' + active_model_name if active_model_name else ''}.",
+        input_summary={"finding_count": len(findings), "model": active_model_name or "deterministic"},
+        output_summary={"evidence_items": sum(len(f.evidence) for f in findings), "tokens": total_tokens or None}
+    ))
+
     latency = round((time.perf_counter() - started) * 1000, 2)
-    return AnalysisResponse(run_id=run_id, dataset_id=dataset_id, question=question, answer=answer, tools=tools, findings=findings, profile_summary={"row_count": profile["row_count"], "column_count": profile["column_count"], "missing_cells": profile["missing_cells"]}, visualization=visualization, visualizations=visualizations, trace=trace, latency_ms=latency, validation={"passed": valid, "checked": ["profile_available", "finding_has_evidence", "provenance_present"], "failed": [] if valid else ["insufficient_analytic_fields"]})
+    return AnalysisResponse(
+        run_id=run_id,
+        dataset_id=dataset_id,
+        question=question,
+        answer=answer,
+        tools=tools,
+        findings=findings,
+        profile_summary={"row_count": profile["row_count"], "column_count": profile["column_count"], "missing_cells": profile["missing_cells"]},
+        visualization=visualization,
+        visualizations=visualizations,
+        trace=trace,
+        latency_ms=latency,
+        token_usage=total_tokens if total_tokens > 0 else None,
+        estimated_cost_usd=round(total_cost, 6) if total_cost > 0 else None,
+        model_name=active_model_name,
+        validation={"passed": valid, "checked": ["profile_available", "finding_has_evidence", "provenance_present"], "failed": [] if valid else ["insufficient_analytic_fields"]},
+    )
 
 
 def _run_with_langgraph(dataset_id: str, frame: pd.DataFrame, question: str) -> AnalysisResponse:
@@ -258,6 +344,8 @@ def _run_with_langgraph(dataset_id: str, frame: pd.DataFrame, question: str) -> 
         tools = state["tools"]
         if "sql_query" in tools:
             return "sql"
+        if "statistical_tests" in tools or "clustering" in tools:
+            return "advanced_analytics"
         if "anomaly_detection" in tools or "correlation_analysis" in tools:
             return "statistics"
         return "pandas"
@@ -278,26 +366,37 @@ def _run_with_langgraph(dataset_id: str, frame: pd.DataFrame, question: str) -> 
 
     def synthesize_node(state: dict[str, Any]) -> dict[str, Any]:
         result = state["result"]
-        result.answer = " ".join(finding.detail for finding in result.findings[:2])
         return {"result": result}
 
     graph = StateGraph(AgentState)
     graph.add_node("profile", profile_node)
     graph.add_node("plan", plan_node)
     graph.add_node("select_sql_lane", lane_node("sql"))
+    graph.add_node("select_advanced_lane", lane_node("advanced_analytics"))
     graph.add_node("select_statistics_lane", lane_node("statistics"))
     graph.add_node("select_pandas_lane", lane_node("pandas"))
     graph.add_node("execute", execute_node)
     graph.add_node("validate", validate_node)
     graph.add_node("synthesize", synthesize_node)
+
     graph.add_edge(START, "profile")
     graph.add_edge("profile", "plan")
-    graph.add_conditional_edges("plan", route_lane, {"sql": "select_sql_lane", "statistics": "select_statistics_lane", "pandas": "select_pandas_lane"})
-    for lane in ("select_sql_lane", "select_statistics_lane", "select_pandas_lane"):
+    graph.add_conditional_edges(
+        "plan",
+        route_lane,
+        {
+            "sql": "select_sql_lane",
+            "advanced_analytics": "select_advanced_lane",
+            "statistics": "select_statistics_lane",
+            "pandas": "select_pandas_lane",
+        }
+    )
+    for lane in ("select_sql_lane", "select_advanced_lane", "select_statistics_lane", "select_pandas_lane"):
         graph.add_edge(lane, "execute")
     graph.add_edge("execute", "validate")
     graph.add_edge("validate", "synthesize")
     graph.add_edge("synthesize", END)
+
     output = graph.compile().invoke({"dataset_id": dataset_id, "frame": frame, "question": question})
     return output["result"]
 
@@ -305,6 +404,6 @@ def _run_with_langgraph(dataset_id: str, frame: pd.DataFrame, question: str) -> 
 def run_analysis(dataset_id: str, frame: pd.DataFrame, question: str) -> AnalysisResponse:
     try:
         return _run_with_langgraph(dataset_id, frame, question)
-    except ImportError:
-        # Keep the deterministic local demo usable when optional dependencies are absent.
+    except Exception:
+        # Graceful fallback to deterministic core
         return _run_analysis_core(dataset_id, frame, question)

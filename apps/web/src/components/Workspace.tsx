@@ -5,18 +5,18 @@ import dynamic from "next/dynamic";
 import {
   Pulse, ArrowClockwise, ArrowDown, ArrowRight, ArrowsOutCardinal, ArrowsLeftRight,
   ChartBar, ChartLine, Check, CircleNotch, ClockCounterClockwise, CloudArrowUp, Database,
-  DotsThree, FileText, Funnel, Gauge, Graph, Info, MagnifyingGlass, Plus, Question,
+  DotsThree, FileText, Funnel, Gauge, Graph, Info, MagnifyingGlass, Play, Plus, Printer, Question,
   ShieldCheck, Sparkle, Table, TerminalWindow, WarningCircle, X,
 } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AnalysisChart } from "@/components/AnalysisChart";
-import { api, type Analysis, type CleaningIssue, type CleaningOperation, type CleaningPreview, type Dataset, type EvaluationReport, type TraceStep } from "@/lib/api";
+import { api, type Analysis, type CleaningIssue, type CleaningOperation, type CleaningPreview, type Dataset, type EvaluationReport, type SqlQueryResult, type TraceStep } from "@/lib/api";
 
 const DatasetUniverse = dynamic(() => import("@/components/DatasetUniverse").then(module => module.DatasetUniverse), { ssr: false, loading: () => <div className="chart-empty"><span>Preparing 3D schema view…</span></div> });
 
 type View = "analysis" | "datasets" | "cleaning" | "history" | "reports" | "traces" | "evaluations";
 type RightTab = "insights" | "evidence" | "data" | "notes";
-type CenterTab = "universe" | "trend" | "segments" | "query";
+type CenterTab = "universe" | "trend" | "segments" | "clustering" | "query";
 
 const viewLabels: Record<View, string> = { analysis: "Analysis", datasets: "Datasets", cleaning: "Data cleaning", history: "Analysis history", reports: "Reports", traces: "Agent traces", evaluations: "Evaluations" };
 const titleCase = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -170,7 +170,20 @@ export function Workspace() {
       </aside>
 
       <section className="main-column">
-        <div className="dataset-header"><div className="active-dataset-mark"><Database size={19} weight="duotone" /></div><button className="dataset-select" onClick={() => setView("datasets")}>{selected?.name ?? "Select a dataset"}<ArrowDown size={14} /></button><span className="dataset-meta">{selected ? `${selected.profile.column_count} fields · ${selected.profile.row_count.toLocaleString()} rows` : "Upload a CSV, XLSX, or JSON file"}</span><span className="header-spacer" /><button className="outline-button details-button" onClick={() => setRightTab("data")}><Info size={16} /> Details</button><button className="subtle-icon more-button" onClick={() => setShowTrace(value => !value)} aria-label="Toggle run trace"><DotsThree size={19} /></button></div>
+        <div className="dataset-header">
+          <div className="active-dataset-mark"><Database size={19} weight="duotone" /></div>
+          <button className="dataset-select" onClick={() => setView("datasets")}>{selected?.name ?? "Select a dataset"}<ArrowDown size={14} /></button>
+          <span className="dataset-meta">{selected ? `${selected.profile.column_count} fields · ${selected.profile.row_count.toLocaleString()} rows` : "Upload a CSV, XLSX, or JSON file"}</span>
+          <span className="header-spacer" />
+          {selected && (
+            <div style={{ display: "flex", gap: "6px", marginRight: "6px" }} className="btn-no-print">
+              <a href={`/api/datasets/${encodeURIComponent(selected.id)}/export?format=csv`} download className="outline-button" title="Export as CSV"><ArrowDown size={13} /> CSV</a>
+              <a href={`/api/datasets/${encodeURIComponent(selected.id)}/export?format=xlsx`} download className="outline-button" title="Export as Excel"><ArrowDown size={13} /> Excel</a>
+            </div>
+          )}
+          <button className="outline-button details-button btn-no-print" onClick={() => setRightTab("data")}><Info size={16} /> Details</button>
+          <button className="subtle-icon more-button btn-no-print" onClick={() => setShowTrace(value => !value)} aria-label="Toggle run trace"><DotsThree size={19} /></button>
+        </div>
 
         {view === "analysis" && <>
           <form className="question-form" onSubmit={submitQuestion}>
@@ -193,22 +206,23 @@ export function Workspace() {
           <section className="analysis-canvas-panel">
             <div className="canvas-tabs" role="tablist" aria-label="Analysis views">
               <Tab active={centerTab === "universe"} icon={<Graph size={15} />} label="Dataset universe" onClick={() => setCenterTab("universe")} />
-              <Tab active={centerTab === "trend"} icon={<ChartLine size={15} />} label="Revenue trend" onClick={() => setCenterTab("trend")} />
+              <Tab active={centerTab === "trend"} icon={<ChartLine size={15} />} label="Trend & Forecast" onClick={() => setCenterTab("trend")} />
               <Tab active={centerTab === "segments"} icon={<ChartBar size={15} />} label="Segment breakdown" onClick={() => setCenterTab("segments")} />
-              <Tab active={centerTab === "query"} icon={<TerminalWindow size={15} />} label="Query details" onClick={() => setCenterTab("query")} />
+              <Tab active={centerTab === "clustering"} icon={<Sparkle size={15} />} label="Clusters & PCA" onClick={() => setCenterTab("clustering")} />
+              <Tab active={centerTab === "query"} icon={<TerminalWindow size={15} />} label="SQL Console" onClick={() => setCenterTab("query")} />
               <span className="canvas-tab-spacer" /><button className="text-button catalog-button" onClick={() => setRightTab("data")}><ArrowsOutCardinal size={14} /> Schema details</button>
             </div>
-            <div className="universe-meta-row"><div><strong>{centerTab === "universe" ? "Dataset universe" : centerTab === "trend" ? "Revenue trend" : centerTab === "segments" ? "Segment breakdown" : "Query details"}</strong><span>{selected ? `${selected.profile.column_count} fields · relationships shown from the selected file` : "Waiting for dataset"}</span></div><div className="legend"><span><i className="legend-dot numeric" />Numeric</span><span><i className="legend-dot categorical" />Category</span><span><i className="legend-dot temporal" />Time</span><span><i className="legend-dot issue" />Data quality</span></div></div>
+            <div className="universe-meta-row"><div><strong>{centerTab === "universe" ? "Dataset universe" : centerTab === "trend" ? "Trend & Forecast" : centerTab === "segments" ? "Segment breakdown" : centerTab === "clustering" ? "Clusters & PCA Map" : "Interactive SQL Console"}</strong><span>{selected ? `${selected.profile.column_count} fields · relationships shown from the selected file` : "Waiting for dataset"}</span></div><div className="legend"><span><i className="legend-dot numeric" />Numeric</span><span><i className="legend-dot categorical" />Category</span><span><i className="legend-dot temporal" />Time</span><span><i className="legend-dot issue" />Data quality</span></div></div>
             <div className="visual-area">
               {centerTab === "universe" && selected && <DatasetUniverse columns={selected.profile.columns} />}
               {centerTab === "trend" && <AnalysisChart analysis={analysis} purpose="trend" />}
               {centerTab === "segments" && <AnalysisChart analysis={analysis} purpose="segments" />}
-              {centerTab === "query" && <QueryDetails analysis={analysis} />}
+              {centerTab === "clustering" && <AnalysisChart analysis={analysis} purpose="clustering" />}
+              {centerTab === "query" && <SqlConsole dataset={selected} analysis={analysis} />}
               {!selected && <EmptyState title="Add a dataset to begin" detail="Drop in a CSV, XLSX, or JSON file to map its schema and ask questions." action={() => inputFile.current?.click()} />}
             </div>
             {centerTab === "universe" && <div className="evidence-chart-strip"><AnalysisChart analysis={analysis} purpose="trend" /></div>}
           </section>
-
         </>}
 
         {view === "datasets" && <DatasetList datasets={datasets} onSelect={selectDataset} onUpload={() => inputFile.current?.click()} />}
@@ -284,10 +298,90 @@ function WorkingTrace({ stage }: { stage: number }) {
   return <>{names.map((name, index) => <div className={`working-row ${index <= stage ? "current" : ""}`} key={name}><span className="trace-index">{index < stage ? <Check size={12} /> : index === stage ? <CircleNotch className="spin" size={13} /> : index + 1}</span><span>{name}</span><span>{index < stage ? "complete" : index === stage ? "working" : "queued"}</span></div>)}</>;
 }
 
-function QueryDetails({ analysis }: { analysis: Analysis | null }) {
-  if (!analysis) return <div className="chart-empty"><span>Query details appear after analysis</span></div>;
-  const sql = analysis.trace.find(step => step.name === "sql_query")?.output_summary.sql;
-  return <div className="query-details"><div className="query-detail-block"><small>USER QUESTION</small><p>{analysis.question}</p></div><div className="query-detail-block"><small>TOOLS SELECTED</small><div className="tool-chip-list">{analysis.tools.map(tool => <span key={tool}>{titleCase(tool)}</span>)}</div></div><div className="query-detail-block"><small>READ-ONLY SQL</small><pre>{typeof sql === "string" ? sql : "No SQL aggregation was selected for this question."}</pre></div><div className="query-detail-block"><small>VALIDATION</small><p>{analysis.validation.passed ? "Passed" : "Needs review"}: {analysis.validation.checked.join(" · ")}</p></div></div>;
+function SqlConsole({ dataset, analysis }: { dataset: Dataset | null; analysis: Analysis | null }) {
+  const [query, setQuery] = useState("SELECT * FROM dataset LIMIT 15;");
+  const [result, setResult] = useState<SqlQueryResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const defaultSql = analysis?.trace.find(s => s.name === "sql_query")?.output_summary.sql;
+    if (typeof defaultSql === "string") {
+      setQuery(defaultSql);
+    }
+  }, [analysis]);
+
+  const execute = async () => {
+    if (!dataset) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.querySql(dataset.id, query);
+      setResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Query execution failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="sql-console-wrap">
+      <div className="sql-toolbar">
+        <div className="sql-templates">
+          <span style={{ fontSize: "10px", color: "#6e849d", fontWeight: 600 }}>Templates:</span>
+          <button className="sql-template-chip" type="button" onClick={() => setQuery("SELECT * FROM dataset LIMIT 10")}>Top 10 rows</button>
+          <button className="sql-template-chip" type="button" onClick={() => setQuery("SELECT COUNT(*) as row_count FROM dataset")}>Count rows</button>
+          {dataset?.profile.categorical_columns?.[0] && (
+            <button className="sql-template-chip" type="button" onClick={() => setQuery(`SELECT "${dataset.profile.categorical_columns[0]}", COUNT(*) as count FROM dataset GROUP BY "${dataset.profile.categorical_columns[0]}" ORDER BY count DESC LIMIT 10`)}>
+              Group by {dataset.profile.categorical_columns[0]}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="sql-editor-container">
+        <textarea
+          className="sql-editor"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Enter read-only SELECT query against 'dataset' table..."
+          rows={3}
+        />
+        <div className="sql-run-bar">
+          <span>Target table: <strong>dataset</strong> ({dataset?.profile.row_count.toLocaleString() ?? 0} rows)</span>
+          <button className="primary-button" type="button" disabled={loading || !dataset} onClick={() => void execute()} style={{ height: "26px", fontSize: "10px" }}>
+            {loading ? <CircleNotch className="spin" size={14} /> : <Play size={14} weight="fill" />} Run Query
+          </button>
+        </div>
+      </div>
+      {error && <div className="sql-error"><WarningCircle size={14} /> {error}</div>}
+      {result && (
+        <div className="sql-result-container">
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: "#f8fbfe", borderBottom: "1px solid #e1ebf5", fontSize: "10px", color: "#506b88" }}>
+            <span>{result.row_count} rows returned</span>
+            <span>Execution time: {result.duration_ms} ms</span>
+          </div>
+          <table className="sql-table">
+            <thead>
+              <tr>{result.columns.map(col => <th key={col}>{col}</th>)}</tr>
+            </thead>
+            <tbody>
+              {result.rows.map((row, i) => (
+                <tr key={i}>
+                  {result.columns.map(col => <td key={col}>{row[col] != null ? String(row[col]) : <em style={{ color: "#a0aec0" }}>NULL</em>}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!result && !error && (
+        <div className="sql-empty">
+          Click <strong>Run Query</strong> or select a template to query data with SQLite in real time.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EmptyState({ title, detail, action }: { title: string; detail: string; action: () => void }) {
@@ -351,7 +445,14 @@ function CleaningPage({ dataset, onApplied }: { dataset: Dataset | null; onAppli
         <div className="cleaning-actions"><span>{operations.length ? `${operations.length} operation${operations.length === 1 ? "" : "s"} selected` : "Select one or more suggestions to continue"}</span><button className="primary-button" type="button" disabled={!operations.length || working} onClick={() => void createPreview()}>{working ? <CircleNotch className="spin" size={16} /> : <MagnifyingGlass size={16} />}{working ? " Working…" : " Preview selected"}</button></div>
         {preview && <section className="cleaning-preview"><div className="cleaning-preview-head"><div><small>REVIEW THE RESULT</small><h2>Preview before you apply</h2></div><span>{preview.operations.length} selected operation{preview.operations.length === 1 ? "" : "s"}</span></div>
           <div className="cleaning-compare"><QualitySnapshot label="Before" profile={preview.before} /><ArrowRight size={17} /><QualitySnapshot label="After preview" profile={preview.after} /></div>
-          <div className="cleaning-change-list"><span>{preview.changes.missing_values_normalized.toLocaleString()} missing markers normalized</span><span>{preview.changes.text_values_trimmed.toLocaleString()} text values trimmed</span><span>{preview.changes.rows_removed.toLocaleString()} exact duplicate rows removed</span></div>
+          <div className="cleaning-change-list">
+            {preview.changes.missing_values_normalized > 0 && <span>{preview.changes.missing_values_normalized.toLocaleString()} missing markers normalized</span>}
+            {preview.changes.text_values_trimmed > 0 && <span>{preview.changes.text_values_trimmed.toLocaleString()} text values trimmed</span>}
+            {preview.changes.rows_removed > 0 && <span>{preview.changes.rows_removed.toLocaleString()} exact duplicate rows removed</span>}
+            {!!preview.changes.outliers_clipped && <span>{preview.changes.outliers_clipped.toLocaleString()} outliers clipped</span>}
+            {!!preview.changes.values_imputed && <span>{preview.changes.values_imputed.toLocaleString()} values imputed</span>}
+            {!!preview.changes.columns_dropped && <span>{preview.changes.columns_dropped.toLocaleString()} columns dropped</span>}
+          </div>
           <div className="cleaning-sample"><strong>First rows in the preview</strong><div className="cleaning-table-scroll"><table><thead><tr>{sampleColumns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{preview.sample_after.map((row, index) => <tr key={index}>{sampleColumns.map(column => <td key={column}>{row[column] == null ? <span className="missing-value">Missing</span> : String(row[column])}</td>)}</tr>)}</tbody></table></div>{sampleColumns.length < preview.after.column_count && <small>Showing {sampleColumns.length} of {preview.after.column_count} columns · first 5 rows</small>}</div>
           <div className="cleaning-apply-row"><span>The uploaded source remains available as its own dataset.</span><button className="primary-button" type="button" disabled={working} onClick={() => void applyOperations()}>{working ? <CircleNotch className="spin" size={16} /> : <Check size={16} />}{working ? " Saving copy…" : " Apply to new copy"}</button></div>
         </section>}
@@ -381,7 +482,7 @@ function TracePage({ items }: { items: Analysis[] }) {
 }
 
 function ReportPage({ analysis, onGenerate }: { analysis: Analysis | null; onGenerate: () => void }) {
-  return <section className="secondary-page"><div className="secondary-title"><div><small>EXPORT</small><h1>Executive reports</h1><p>Create a Markdown summary with methodology, evidence, and caveats.</p></div><FileText size={24} /></div>{analysis ? <div className="report-preview"><div className="report-preview-head"><span className="report-icon"><FileText size={20} /></span><div><strong>NEXUS Executive Analysis</strong><small>{analysis.question}</small></div><span className="confidence high">Ready</span></div><p>{analysis.answer}</p><div className="report-meta"><span>{analysis.findings.length} findings</span><span>{analysis.trace.length} trace steps</span><span>{analysis.latency_ms.toFixed(1)} ms measured</span></div><button className="primary-button" onClick={onGenerate}><ArrowDown size={16} /> Download Markdown</button></div> : <div className="inline-empty">Run an analysis before generating an executive report.</div>}</section>;
+  return <section className="secondary-page"><div className="secondary-title"><div><small>EXPORT</small><h1>Executive reports</h1><p>Create a Markdown summary with methodology, evidence, and caveats.</p></div><FileText size={24} /></div>{analysis ? <div className="report-preview"><div className="report-preview-head"><span className="report-icon"><FileText size={20} /></span><div><strong>NEXUS Executive Analysis</strong><small>{analysis.question}</small></div><span className="confidence high">Ready</span></div><p>{analysis.answer}</p><div className="report-meta"><span>{analysis.findings.length} findings</span><span>{analysis.trace.length} trace steps</span><span>{analysis.latency_ms.toFixed(1)} ms measured</span><span>Model: {analysis.model_name || "Deterministic"}</span></div><div style={{ display: "flex", gap: "10px", marginTop: "14px" }} className="btn-no-print"><button className="primary-button" onClick={onGenerate}><ArrowDown size={16} /> Download Markdown</button><button className="outline-button" onClick={() => window.print()}><Printer size={16} /> Print / Save PDF</button></div></div> : <div className="inline-empty">Run an analysis before generating an executive report.</div>}</section>;
 }
 
 function EvaluationPage({ report, onRun, busy }: { report: EvaluationReport | null; onRun: () => void; busy: boolean }) {

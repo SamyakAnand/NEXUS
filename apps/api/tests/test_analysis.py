@@ -89,3 +89,58 @@ def test_cleaning_suggestions_and_operations_are_measured_and_non_destructive():
         "text_values_trimmed": 2,
         "rows_removed": 1,
     }
+
+
+def test_statistical_tests_and_clustering():
+    from nexus_api.stats import run_statistical_tests, run_clustering
+    import numpy as np
+
+    np.random.seed(42)
+    df = pd.DataFrame({
+        "revenue": np.concatenate([np.random.normal(100, 10, 50), np.random.normal(150, 15, 50)]),
+        "cost": np.random.normal(50, 5, 100),
+        "region": ["North"] * 50 + ["South"] * 50,
+    })
+
+    findings, stats_res = run_statistical_tests(df, "revenue", "region")
+    assert len(findings) >= 2
+    assert "two_sample_comparison" in stats_res
+    assert stats_res["two_sample_comparison"]["significant"] is True
+
+    cluster_findings, chart = run_clustering(df, n_clusters=2)
+    assert len(cluster_findings) == 1
+    assert chart is not None
+    assert chart["kind"] == "scatter"
+    assert len(chart["data"]) > 0
+
+
+def test_advanced_cleaning_operations():
+    df = pd.DataFrame({
+        "amount": [10.0, 12.0, 11.0, 10.5, 11.2, 10.8, 12.1, 11.5, 10.9, 11.8, 1000.0, None],
+        "category": ["A", "B", "A", "A", None, "B", "A", "B", "A", "B", "A", "B"],
+        "empty_col": [None] * 12,
+    })
+
+    cleaned, changes = clean_frame(df, [
+        "clip_outliers",
+        "impute_missing_median",
+        "impute_missing_mode",
+        "drop_high_missing_columns",
+    ])
+
+    assert "empty_col" not in cleaned.columns
+    assert cleaned["amount"].max() < 100.0
+    assert cleaned["amount"].isna().sum() == 0
+    assert cleaned["category"].isna().sum() == 0
+    assert changes["outliers_clipped"] >= 1
+    assert changes["values_imputed"] >= 1
+    assert changes["columns_dropped"] == 1
+
+
+def test_custom_sql_query():
+    from nexus_api.analysis import execute_custom_sql
+    df = pd.DataFrame({"product": ["A", "B", "C"], "sales": [100, 200, 300]})
+    cols, rows, dur = execute_custom_sql(df, "SELECT product, sales * 2 AS double_sales FROM dataset WHERE sales > 150")
+    assert cols == ["product", "double_sales"]
+    assert len(rows) == 2
+    assert rows[0]["double_sales"] == 400

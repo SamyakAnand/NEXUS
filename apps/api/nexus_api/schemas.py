@@ -6,14 +6,22 @@ from pydantic import BaseModel, Field, model_validator
 class AnalysisRequest(BaseModel):
     dataset_id: str
     question: str = Field(min_length=3, max_length=1000)
-    requested_visualization: Literal["auto", "line", "bar", "scatter", "table"] = "auto"
+    requested_visualization: Literal["auto", "line", "bar", "scatter", "area", "table"] = "auto"
 
 
-CleaningOperation = Literal["normalize_missing_values", "trim_whitespace", "remove_exact_duplicates"]
+CleaningOperation = Literal[
+    "normalize_missing_values",
+    "trim_whitespace",
+    "remove_exact_duplicates",
+    "clip_outliers",
+    "impute_missing_median",
+    "impute_missing_mode",
+    "drop_high_missing_columns",
+]
 
 
 class CleaningRequest(BaseModel):
-    operations: list[CleaningOperation] = Field(min_length=1, max_length=3)
+    operations: list[CleaningOperation] = Field(min_length=1, max_length=7)
 
     @model_validator(mode="after")
     def operations_are_unique(self):
@@ -53,4 +61,17 @@ class AnalysisResponse(BaseModel):
     latency_ms: float
     token_usage: int | None = None
     estimated_cost_usd: float | None = None
+    model_name: str | None = None
     validation: dict[str, Any]
+
+
+class SqlQueryRequest(BaseModel):
+    dataset_id: str
+    query: str = Field(min_length=6, max_length=2000)
+
+
+class SqlQueryResponse(BaseModel):
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    duration_ms: float
