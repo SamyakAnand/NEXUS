@@ -96,7 +96,7 @@ The Vercel service routing makes both `/api/*` and the web catch-all public. No 
 
 ## Verification performed for this audit
 
-- API suite: `python -m pytest -c apps/api/pytest.ini apps/api/tests` — **9 passed**, one upstream Starlette/AnyIO deprecation warning.
+- API suite: `python -m pytest -c apps/api/pytest.ini apps/api/tests` — **10 passed**, one upstream Starlette/AnyIO deprecation warning.
 - Frontend types: `npm run typecheck` — **passed**.
 - Frontend production build: `npm run build` — **passed**; Next.js prerendered `/` and `/workspace`.
 - Local browser verification: confirmed the landing page initially has no analysis/chart, then returned a fresh run, evidence status, measured latency, and chart after explicit button click. This did not verify Vercel production.
