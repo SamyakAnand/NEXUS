@@ -1,0 +1,2 @@
+[tool.vercel]
+entrypoint = "nexus_api.main:app"
