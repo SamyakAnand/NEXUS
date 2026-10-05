@@ -20,7 +20,7 @@ from .evaluation import CASES, run_evaluation
 from .profiling import profile_frame
 from .schemas import AnalysisRequest, AnalysisResponse
 
-DATA_DIR = Path(os.getenv("NEXUS_DATA_DIR", "data"))
+DATA_DIR = Path(os.getenv("NEXUS_DATA_DIR", "/tmp/nexus-data" if os.getenv("VERCEL") else "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 RUN_DIR = DATA_DIR / "runs"
 MANIFEST = DATA_DIR / "datasets.json"
