@@ -1,0 +1,17 @@
+.next/
+node_modules/
+apps/web/node_modules/
+apps/web/.next/
+apps/web/tsconfig.tsbuildinfo
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.vercel/
+data/uploads/
+data/runs/
+data/datasets.json
+data/nexus.db
+dist/
+apps/web/public/qa-reference.png
+apps/web/public/qa-compare*.html
