@@ -167,7 +167,7 @@ export function Workspace() {
           <NavItem active={view === "evaluations"} icon={<Gauge size={18} />} label="Evaluations" onClick={() => changeView("evaluations")} />
         </nav>
 
-        <div className="sidebar-bottom"><button className="upload-card" onClick={() => inputFile.current?.click()}><span className="upload-icon"><CloudArrowUp size={19} /></span><span><strong>Add data</strong><small>CSV · XLSX · JSON</small></span><ArrowRight size={16} /></button><div className="privacy-note"><ShieldCheck size={16} /><span>Files stay local in this demo</span></div></div>
+        <div className="sidebar-bottom"><button className="upload-card" onClick={() => inputFile.current?.click()}><span className="upload-icon"><CloudArrowUp size={19} /></span><span><strong>Add data</strong><small>CSV · XLSX · JSON</small></span><ArrowRight size={16} /></button><div className="privacy-note"><ShieldCheck size={16} /><span>Files are sent to the NEXUS API for processing</span></div></div>
         <input ref={inputFile} type="file" accept=".csv,.xlsx,.json" hidden onChange={uploadFile} />
       </aside>
 

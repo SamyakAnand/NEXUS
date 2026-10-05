@@ -680,15 +680,16 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .stack-row span:hover { transform: translateY(-2px); border-color: #b9d2e8; background: white; box-shadow: 0 6px 16px #315b8212; }
 .creator-card { position: relative; display: grid; grid-template-columns: minmax(220px, .72fr) 1.28fr; align-items: center; gap: clamp(35px, 7vw, 92px); width: min(100%, 1120px); min-height: 390px; margin: auto; overflow: hidden; border: 1px solid #dce7f1; border-radius: 8px; padding: clamp(26px, 5vw, 62px); background: radial-gradient(ellipse at 17% 55%, #eaf4ff 0, #f6f9fc 38%, #fff 78%); box-shadow: 0 25px 65px #2849690b; }
 .creator-card:hover { border-color: #c3d8eb; box-shadow: 0 30px 70px #28496916; }
-.creator-orbit { position: relative; width: min(100%, 300px); aspect-ratio: 1; display: grid; place-items: center; justify-self: center; border: 1px solid #d5e5f2; border-radius: 50%; background: repeating-radial-gradient(circle, transparent 0 39px, #dce9f4 40px 41px, transparent 42px 68px); box-shadow: inset 0 0 50px #d9eaf51a; }
-.creator-orbit::before, .creator-orbit::after { position: absolute; border: 1px solid #dce8f2; border-radius: 50%; content: ''; }
-.creator-orbit::before { inset: 14%; }
-.creator-orbit::after { inset: 29%; border-style: dashed; animation: orbit-turn 42s linear infinite; }
-.orbit-core { z-index: 1; width: 95px; height: 95px; display: grid; place-items: center; border: 1px solid #fff; border-radius: 28px; background: linear-gradient(145deg, #fff, #edf5fc); color: #2473c5; box-shadow: 0 18px 42px #27669e22, inset 0 1px #fff; transform: rotate(-8deg); }
-.creator-orbit i { position: absolute; z-index: 2; width: 8px; height: 8px; border: 2px solid white; border-radius: 50%; background: #438ac9; box-shadow: 0 0 0 4px #438ac91c; }
-.creator-orbit i:nth-of-type(1) { top: 13%; left: 50%; }
-.creator-orbit i:nth-of-type(2) { right: 15%; bottom: 25%; background: #42a082; box-shadow: 0 0 0 4px #42a0821c; }
-.creator-orbit i:nth-of-type(3) { bottom: 17%; left: 24%; background: #83a9d1; box-shadow: 0 0 0 4px #83a9d11c; }
+.creator-portrait { position: relative; isolation: isolate; display: grid; width: min(100%, 300px); aspect-ratio: .78; place-items: center; justify-self: center; animation: portrait-float 8s ease-in-out infinite; }
+.creator-photo-frame { position: absolute; z-index: 1; inset: 7% 7% 8%; overflow: hidden; border: 1px solid #ffffffc9; border-radius: 46% 46% 13px 13px / 35% 35% 13px 13px; background: #e5d8d1; box-shadow: 0 24px 60px #26476324, 0 3px 12px #24476518, inset 0 1px #fff; transform: perspective(900px) rotateY(-4deg); transition: transform .7s cubic-bezier(.22, 1, .36, 1), box-shadow .7s cubic-bezier(.22, 1, .36, 1); }
+.creator-card:hover .creator-photo-frame { transform: perspective(900px) rotateY(0) translateY(-3px); box-shadow: 0 32px 70px #26476330, 0 4px 14px #2447651d, inset 0 1px #fff; }
+.creator-photo { width: 100%; height: 100%; object-fit: cover; object-position: 50% 39%; }
+.creator-photo-frame::after { position: absolute; inset: 45% 0 0; background: linear-gradient(180deg, transparent 45%, #112b4438); content: ''; pointer-events: none; }
+.portrait-orbit { position: absolute; z-index: -1; border: 1px solid #b9d2e699; border-radius: 50%; pointer-events: none; }
+.portrait-orbit-one { inset: 1% -4%; transform: rotate(-24deg); animation: orbit-turn 46s linear infinite; }
+.portrait-orbit-two { inset: 12% -10%; border-style: dashed; border-color: #8bb3d04d; transform: rotate(30deg); animation: orbit-turn 68s linear infinite reverse; }
+.portrait-caption { position: absolute; z-index: 2; right: 12%; bottom: 11%; display: flex; align-items: center; gap: 7px; color: #fff; font: 700 7px ui-monospace, Consolas, monospace; letter-spacing: .15em; text-shadow: 0 1px 8px #10283d70; }
+.portrait-caption i { width: 6px; height: 6px; border-radius: 50%; background: #82dfbf; box-shadow: 0 0 0 4px #82dfbf38; }
 .creator-copy { position: relative; z-index: 1; max-width: 620px; }
 .creator-copy > small { color: #547b9e; font-size: 9px; letter-spacing: .13em; font-weight: 700; }
 .creator-copy h2 { margin: 15px 0 13px; color: #183958; font: 700 clamp(25px, 3.2vw, 39px)/1.17 'Manrope', sans-serif; letter-spacing: -.045em; }
@@ -699,6 +700,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .creator-line { width: 24px; height: 1px; background: #7ca7cd; }
 .creator-index { position: absolute; top: 22px; right: 24px; color: #96a9bb; font: 8px ui-monospace, Consolas, monospace; letter-spacing: .1em; }
 @keyframes orbit-turn { to { transform: rotate(360deg); } }
+@keyframes portrait-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
 .topbar, .left-sidebar, .main-column, .right-panel, .trace-drawer, .secondary-page { animation: workspace-arrive .65s var(--motion-ease) both; }
 .topbar { animation-delay: .02s; }
 .left-sidebar { animation-delay: .08s; }
@@ -728,8 +730,9 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 @media (max-width: 760px) {
   .creator-card { grid-template-columns: 1fr; gap: 28px; padding: 28px 22px; }
-  .creator-orbit { width: min(70vw, 240px); }
+  .creator-portrait { width: min(70vw, 260px); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .creator-orbit::after { animation: none; }
+  .creator-portrait, .portrait-orbit-one, .portrait-orbit-two { animation: none; }
+  .creator-photo-frame { transition: none; }
 }

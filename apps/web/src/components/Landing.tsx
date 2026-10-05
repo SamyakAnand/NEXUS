@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowDownRight, ArrowRight, BracketsCurly, ChartBar, ChartLine, CheckCircle,
@@ -114,9 +115,9 @@ export function Landing() {
     </section>
 
     <section className="profile-section" id="profile">
-      <Reveal className="creator-card"><div className="creator-orbit" aria-hidden="true"><span className="orbit-core"><Graph size={36} weight="bold" /></span><i /><i /><i /></div><div className="creator-copy"><small>AN INDEPENDENT PROJECT BY SAMYAK ANAND</small><h2>Built around a simple belief:<br /><span>AI should show its work.</span></h2><p>I created NEXUS to make data analysis more transparent. It profiles data, chooses relevant computations, and keeps findings tied to evidence—so you can inspect how an answer was reached.</p><div className="creator-signature"><span className="creator-line" /><strong>Samyak Anand</strong><span>Creator · NEXUS</span></div><a href="/workspace" className="inline-link">Step inside the project <ArrowRight size={15} /></a></div><span className="creator-index">N / CREATOR</span></Reveal>
+      <Reveal className="creator-card"><div className="creator-portrait"><div className="portrait-orbit portrait-orbit-one" /><div className="portrait-orbit portrait-orbit-two" /><div className="creator-photo-frame"><Image src="/creator/samyak-anand.jpeg" alt="Samyak Anand, creator of NEXUS" width={900} height={1600} sizes="(max-width: 760px) 70vw, 300px" className="creator-photo" /></div><span className="portrait-caption"><i /> NEXUS · FOUNDER</span></div><div className="creator-copy"><small>AN INDEPENDENT PROJECT BY SAMYAK ANAND</small><h2>Built around a simple belief:<br /><span>AI should show its work.</span></h2><p>I created NEXUS to make data analysis more transparent. It profiles data, chooses relevant computations, and keeps findings tied to evidence—so you can inspect how an answer was reached.</p><div className="creator-signature"><span className="creator-line" /><strong>Samyak Anand</strong><span>Creator · NEXUS</span></div><a href="/workspace" className="inline-link">Step inside the project <ArrowRight size={15} /></a></div><span className="creator-index">N / CREATOR</span></Reveal>
     </section>
 
-    <footer className="landing-footer"><div className="footer-main"><a className="landing-brand" href="/workspace"><Graph size={22} weight="bold" /><strong>NEXUS</strong></a><p>Created by Samyak Anand<br />Autonomous Data Intelligence</p><a href="/workspace" className="landing-primary">Launch Analyst <ArrowRight size={15} /></a></div><div className="footer-bottom"><span>Local prototype · deterministic analysis mode</span><span className="repo-note"><GithubLogo size={15} /> GitHub repository not connected</span><span>LLM, PostgreSQL persistence, and vector retrieval are not enabled in this local build.</span></div></footer>
+    <footer className="landing-footer"><div className="footer-main"><a className="landing-brand" href="/workspace"><Graph size={22} weight="bold" /><strong>NEXUS</strong></a><p>Created by Samyak Anand<br />Autonomous Data Intelligence</p><a href="/workspace" className="landing-primary">Launch Analyst <ArrowRight size={15} /></a></div><div className="footer-bottom"><span>Deterministic analysis prototype</span><a className="repo-note" href="https://github.com/SamyakAnand/NEXUS" target="_blank" rel="noreferrer"><GithubLogo size={15} /> GitHub repository</a><span>LLM, durable PostgreSQL persistence, and vector retrieval are not enabled.</span></div></footer>
   </main>;
 }
