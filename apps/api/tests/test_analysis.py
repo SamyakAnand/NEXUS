@@ -46,6 +46,14 @@ def test_analysis_uses_computed_results_and_evidence():
     assert {step.name for step in result.trace} >= {"dataset_profiler", "analysis_planner", "sql_query", "result_validation", "insight_synthesis"}
 
 
+def test_sample_region_question_matches_answer_and_chart():
+    result = run_analysis("demo", build_demo_dataset(), "Which regions had the highest and lowest total revenue?")
+    assert result.validation["passed"]
+    assert result.visualization["title"] == "Revenue by region"
+    assert "West highest by total revenue" in result.answer
+    assert "North recorded the lowest total revenue" in result.answer
+
+
 def test_generated_demo_dataset_and_evaluation_are_deterministic():
     first = build_demo_dataset()
     second = build_demo_dataset()

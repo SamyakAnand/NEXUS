@@ -684,25 +684,27 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .architecture-flow > div { padding: 8px; border-radius: 5px; }
 .architecture-flow > div:hover { transform: translateY(-4px); background: #f6faff; box-shadow: 0 8px 20px #315b8210; }
 .stack-row span:hover { transform: translateY(-2px); border-color: #b9d2e8; background: white; box-shadow: 0 6px 16px #315b8212; }
-.creator-card { position: relative; display: grid; grid-template-columns: minmax(220px, .72fr) 1.28fr; align-items: center; gap: clamp(35px, 7vw, 92px); width: min(100%, 1120px); min-height: 390px; margin: auto; overflow: hidden; border: 1px solid #dce7f1; border-radius: 8px; padding: clamp(26px, 5vw, 62px); background: radial-gradient(ellipse at 17% 55%, #eaf4ff 0, #f6f9fc 38%, #fff 78%); box-shadow: 0 25px 65px #2849690b; }
-.creator-card:hover { border-color: #c3d8eb; box-shadow: 0 30px 70px #28496916; }
+.creator-card { position: relative; display: grid; grid-template-columns: minmax(220px, .72fr) 1.28fr; align-items: center; gap: clamp(35px, 7vw, 92px); width: min(100%, 1120px); min-height: 390px; margin: auto; overflow: hidden; border: 1px solid #ead8ce; border-radius: 8px; padding: clamp(26px, 5vw, 62px); background: radial-gradient(ellipse at 17% 55%, #f1dfd8 0, #faf4ef 38%, #fffdfa 78%); box-shadow: 0 25px 65px #6e48330b; }
+.creator-card:hover { border-color: #d9b7a9; box-shadow: 0 30px 70px #6e483316; }
 .creator-portrait { position: relative; isolation: isolate; display: grid; width: min(100%, 300px); aspect-ratio: .78; place-items: center; justify-self: center; animation: portrait-float 8s ease-in-out infinite; }
-.creator-photo-frame { position: absolute; z-index: 1; inset: 5% 7% 12%; overflow: hidden; border: 1px solid #ffffffd9; border-radius: 16px; background: #e5d8d1; box-shadow: 0 24px 60px #26476320, 0 3px 12px #24476514, inset 0 1px #fff; transition: transform .7s cubic-bezier(.22, 1, .36, 1), box-shadow .7s cubic-bezier(.22, 1, .36, 1); }
-.creator-card:hover .creator-photo-frame { transform: translateY(-3px); box-shadow: 0 32px 70px #2647632a, 0 4px 14px #24476519, inset 0 1px #fff; }
+.creator-portrait::before { position: absolute; z-index: -2; inset: -6%; border-radius: 50%; background: radial-gradient(ellipse, #fffaf6 0, #efdbd1a6 48%, #efdbd100 74%); content: ''; }
+.creator-portrait::after { position: absolute; z-index: -1; inset: 4% -7%; border: 1px solid #b77b6591; border-radius: 50%; background-image: linear-gradient(#a7675220 1px, transparent 1px), linear-gradient(90deg, #a7675220 1px, transparent 1px); background-size: 18px 18px; content: ''; mask-image: radial-gradient(ellipse at center, transparent 36%, #000 76%); pointer-events: none; }
+.creator-photo-frame { position: absolute; z-index: 1; inset: 5% 7% 12%; overflow: hidden; border: 1px solid #fffaf4; border-radius: 18px; background: #ead9ce; box-shadow: 0 24px 60px #70453220, 0 3px 12px #70453214, inset 0 1px #fff; transition: transform .7s cubic-bezier(.22, 1, .36, 1), box-shadow .7s cubic-bezier(.22, 1, .36, 1); }
+.creator-card:hover .creator-photo-frame { transform: translateY(-3px); box-shadow: 0 32px 70px #7045322a, 0 4px 14px #70453219, inset 0 1px #fff; }
 .creator-photo { width: 100%; height: 100%; object-fit: cover; object-position: 50% 39%; }
-.portrait-orbit { position: absolute; z-index: -1; border: 1px solid #b9d2e699; border-radius: 50%; pointer-events: none; }
+.portrait-orbit { position: absolute; z-index: -1; border: 1px solid #b77b6591; border-radius: 50%; pointer-events: none; }
 .portrait-orbit-one { inset: 1% -4%; transform: rotate(-24deg); animation: orbit-turn 46s linear infinite; }
-.portrait-orbit-two { inset: 12% -10%; border-style: dashed; border-color: #8bb3d04d; transform: rotate(30deg); animation: orbit-turn 68s linear infinite reverse; }
-.portrait-caption { position: absolute; z-index: 2; right: 50%; bottom: 1%; display: flex; align-items: center; gap: 7px; border: 1px solid #ffffffd9; border-radius: 99px; padding: 7px 10px; background: #ffffffed; color: #56718b; font: 700 7px ui-monospace, Consolas, monospace; letter-spacing: .15em; box-shadow: 0 6px 18px #24476516; transform: translateX(50%); }
-.portrait-caption i { width: 6px; height: 6px; border-radius: 50%; background: #82dfbf; box-shadow: 0 0 0 4px #82dfbf38; }
+.portrait-orbit-two { inset: 12% -10%; border-style: dashed; border-color: #a7675266; transform: rotate(30deg); animation: orbit-turn 68s linear infinite reverse; }
+.portrait-caption { position: absolute; z-index: 2; right: 50%; bottom: 1%; display: flex; align-items: center; gap: 7px; border: 1px solid #fffaf4; border-radius: 99px; padding: 7px 10px; background: #fffaf4ed; color: #67483e; font: 700 7px ui-monospace, Consolas, monospace; letter-spacing: .15em; box-shadow: 0 6px 18px #70453216; transform: translateX(50%); }
+.portrait-caption i { width: 6px; height: 6px; border-radius: 50%; background: #b87860; box-shadow: 0 0 0 4px #b8786038; }
 .creator-copy { position: relative; z-index: 1; max-width: 620px; }
-.creator-copy > small { color: #547b9e; font-size: 9px; letter-spacing: .13em; font-weight: 700; }
-.creator-copy h2 { margin: 15px 0 13px; color: #183958; font: 700 clamp(25px, 3.2vw, 39px)/1.17 'Manrope', sans-serif; letter-spacing: -.045em; }
-.creator-copy h2 span { color: #327fc5; }
-.creator-copy > p { max-width: 560px; margin: 0; color: #697f96; font-size: 11px; line-height: 1.85; }
-.creator-signature { display: flex; align-items: center; gap: 10px; margin: 23px 0 17px; color: #8293a6; font-size: 8px; }
-.creator-signature strong { color: #365471; font: 700 10px 'Manrope', sans-serif; }
-.creator-line { width: 24px; height: 1px; background: #7ca7cd; }
+.creator-copy > small { color: #916552; font-size: 9px; letter-spacing: .13em; font-weight: 700; }
+.creator-copy h2 { margin: 15px 0 13px; color: #392720; font: 700 clamp(25px, 3.2vw, 39px)/1.17 'Manrope', sans-serif; letter-spacing: -.045em; }
+.creator-copy h2 span { color: #a75f4c; }
+.creator-copy > p { max-width: 560px; margin: 0; color: #765f56; font-size: 11px; line-height: 1.85; }
+.creator-signature { display: flex; align-items: center; gap: 10px; margin: 23px 0 17px; color: #927d73; font-size: 8px; }
+.creator-signature strong { color: #553b31; font: 700 10px 'Manrope', sans-serif; }
+.creator-line { width: 24px; height: 1px; background: #bd7d66; }
 .creator-index { position: absolute; top: 22px; right: 24px; color: #96a9bb; font: 8px ui-monospace, Consolas, monospace; letter-spacing: .1em; }
 @keyframes orbit-turn { to { transform: rotate(360deg); } }
 @keyframes portrait-float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -7px; } }
