@@ -15,10 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 from .analysis import run_analysis
+from .cleaning import clean_frame, inspect_cleaning_issues, json_records
 from .demo import ensure_demo_file
 from .evaluation import CASES, run_evaluation
 from .profiling import profile_frame
-from .schemas import AnalysisRequest, AnalysisResponse
+from .schemas import AnalysisRequest, AnalysisResponse, CleaningRequest
 
 DATA_DIR = Path(os.getenv("NEXUS_DATA_DIR", "/tmp/nexus-data" if os.getenv("VERCEL") else "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -67,7 +68,7 @@ def _register(dataset_id: str, name: str, path: Path, suffix: str) -> dict[str, 
     if frame.shape[1] > 250:
         raise HTTPException(status_code=422, detail="Datasets are limited to 250 columns in this prototype.")
     profile = profile_frame(frame)
-    record = {"id": dataset_id, "name": name, "filename": path.name, "format": suffix.removeprefix("."), "profile": profile, "source": "upload" if not name.startswith("Demo") else "demo", "storage": str(path)}
+    record = {"id": dataset_id, "name": name, "filename": path.name, "format": suffix.removeprefix("."), "profile": profile, "source": "demo" if dataset_id == "demo-sales" else "upload", "storage": str(path)}
     datasets[dataset_id] = record
     frames[dataset_id] = frame
     MANIFEST.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +85,10 @@ def _restore() -> None:
         source = Path(record.get("storage", ""))
         if source.exists():
             try:
-                _register(record["id"], record["name"], source, "." + record["format"])
+                restored = _register(record["id"], record["name"], source, "." + record["format"])
+                for key in ("derived_from", "transformations"):
+                    if key in record:
+                        restored[key] = record[key]
             except Exception:
                 continue
     demo_path = ensure_demo_file(DATA_DIR / "demo_sales.csv")
@@ -132,6 +136,59 @@ def get_dataset(dataset_id: str) -> dict[str, Any]:
     if dataset_id not in datasets:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     return {k: v for k, v in datasets[dataset_id].items() if k != "storage"}
+
+
+@app.get("/datasets/{dataset_id}/cleaning")
+def get_cleaning_plan(dataset_id: str) -> dict[str, Any]:
+    if dataset_id not in frames:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    return {"dataset_id": dataset_id, "issues": inspect_cleaning_issues(frames[dataset_id])}
+
+
+def _cleaning_preview(dataset_id: str, request: CleaningRequest) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if dataset_id not in frames:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    source = frames[dataset_id]
+    try:
+        cleaned, changes = clean_frame(source, request.operations)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    preview = {
+        "source_dataset_id": dataset_id,
+        "operations": request.operations,
+        "changes": changes,
+        "before": profile_frame(source),
+        "after": profile_frame(cleaned),
+        "sample_before": json_records(source),
+        "sample_after": json_records(cleaned),
+    }
+    return cleaned, preview
+
+
+@app.post("/datasets/{dataset_id}/cleaning/preview")
+def preview_cleaning(dataset_id: str, request: CleaningRequest) -> dict[str, Any]:
+    _, preview = _cleaning_preview(dataset_id, request)
+    return preview
+
+
+@app.post("/datasets/{dataset_id}/cleaning/apply")
+def apply_cleaning(dataset_id: str, request: CleaningRequest) -> dict[str, Any]:
+    cleaned, preview = _cleaning_preview(dataset_id, request)
+    source_record = datasets[dataset_id]
+    operation_key = json.dumps(request.operations, separators=(",", ":"))
+    derived_id = f"{dataset_id}-clean-{hashlib.sha256(operation_key.encode()).hexdigest()[:8]}"
+    if derived_id in datasets:
+        return {"dataset": {k: v for k, v in datasets[derived_id].items() if k != "storage"}, "preview": preview, "reused": True}
+
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(source_record["filename"]).stem)[:80] or "dataset"
+    path = UPLOAD_DIR / f"{derived_id}-{stem}-cleaned.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned.to_csv(path, index=False)
+    record = _register(derived_id, f"{source_record['name']} · cleaned", path, ".csv")
+    record["derived_from"] = dataset_id
+    record["transformations"] = request.operations
+    MANIFEST.write_text(json.dumps(list(datasets.values()), indent=2), encoding="utf-8")
+    return {"dataset": {k: v for k, v in record.items() if k != "storage"}, "preview": preview, "reused": False}
 
 
 @app.post("/analysis", response_model=AnalysisResponse)

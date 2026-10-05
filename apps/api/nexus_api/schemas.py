@@ -1,12 +1,25 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AnalysisRequest(BaseModel):
     dataset_id: str
     question: str = Field(min_length=3, max_length=1000)
     requested_visualization: Literal["auto", "line", "bar", "scatter", "table"] = "auto"
+
+
+CleaningOperation = Literal["normalize_missing_values", "trim_whitespace", "remove_exact_duplicates"]
+
+
+class CleaningRequest(BaseModel):
+    operations: list[CleaningOperation] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def operations_are_unique(self):
+        if len(self.operations) != len(set(self.operations)):
+            raise ValueError("Each cleaning operation can only be selected once.")
+        return self
 
 
 class Finding(BaseModel):

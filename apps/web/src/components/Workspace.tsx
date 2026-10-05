@@ -10,23 +10,22 @@ import {
 } from "@phosphor-icons/react";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { AnalysisChart } from "@/components/AnalysisChart";
-import { api, type Analysis, type Dataset, type EvaluationReport, type TraceStep } from "@/lib/api";
+import { api, type Analysis, type CleaningIssue, type CleaningOperation, type CleaningPreview, type Dataset, type EvaluationReport, type TraceStep } from "@/lib/api";
 
 const DatasetUniverse = dynamic(() => import("@/components/DatasetUniverse").then(module => module.DatasetUniverse), { ssr: false, loading: () => <div className="chart-empty"><span>Preparing 3D schema view…</span></div> });
 
-type View = "analysis" | "datasets" | "history" | "reports" | "traces" | "evaluations";
+type View = "analysis" | "datasets" | "cleaning" | "history" | "reports" | "traces" | "evaluations";
 type RightTab = "insights" | "evidence" | "data" | "notes";
 type CenterTab = "universe" | "trend" | "segments" | "query";
 
-const defaultQuestion = "Show the monthly revenue trend and compare regions.";
-const viewLabels: Record<View, string> = { analysis: "Analysis", datasets: "Datasets", history: "Analysis history", reports: "Reports", traces: "Agent traces", evaluations: "Evaluations" };
+const viewLabels: Record<View, string> = { analysis: "Analysis", datasets: "Datasets", cleaning: "Data cleaning", history: "Analysis history", reports: "Reports", traces: "Agent traces", evaluations: "Evaluations" };
 const titleCase = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
 
 export function Workspace() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [question, setQuestion] = useState(defaultQuestion);
+  const [question, setQuestion] = useState("");
   const [view, setView] = useState<View>("analysis");
   const [rightTab, setRightTab] = useState<RightTab>("insights");
   const [centerTab, setCenterTab] = useState<CenterTab>("trend");
@@ -70,7 +69,6 @@ export function Workspace() {
       }
       const preferred = items.find(item => item.id === "demo-sales") ?? items[0];
       setSelectedId(preferred.id);
-      void runQuestion(defaultQuestion, preferred.id);
     }).catch(cause => setError(cause instanceof Error ? cause.message : "API unavailable. Start the FastAPI service on port 8000."));
   // The first read is intentionally a one-time demo bootstrap.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,9 +98,8 @@ export function Workspace() {
     try {
       const dataset = await api.upload(file);
       setDatasets(previous => [dataset, ...previous.filter(item => item.id !== dataset.id)]);
-      setSelectedId(dataset.id); setQuestion("Profile this dataset and identify useful next questions.");
+      setSelectedId(dataset.id); setAnalysis(null); setQuestion(""); setView("analysis");
       setToast(`${dataset.name} is ready for analysis`);
-      await runQuestion("Profile this dataset and identify useful next questions.", dataset.id);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Upload failed."); }
     finally { setBusy(false); event.target.value = ""; }
   };
@@ -161,6 +158,7 @@ export function Workspace() {
         <nav className="primary-nav" aria-label="Workspace navigation">
           <NavItem active={view === "analysis"} icon={<ChartLine size={18} />} label="New analysis" onClick={() => { setAnalysis(null); setQuestion(""); setView("analysis"); }} />
           <NavItem active={view === "datasets"} icon={<Table size={18} />} label="Datasets" onClick={() => changeView("datasets")} />
+          <NavItem active={view === "cleaning"} icon={<Funnel size={18} />} label="Data cleaning" onClick={() => changeView("cleaning")} />
           <NavItem active={view === "history"} icon={<ClockCounterClockwise size={18} />} label="Analysis history" badge={String(history.length)} onClick={() => changeView("history")} />
           <NavItem active={view === "reports"} icon={<FileText size={18} />} label="Reports" onClick={() => changeView("reports")} />
           <NavItem active={view === "traces"} icon={<TerminalWindow size={18} />} label="Agent traces" onClick={() => changeView("traces")} />
@@ -214,6 +212,7 @@ export function Workspace() {
         </>}
 
         {view === "datasets" && <DatasetList datasets={datasets} onSelect={selectDataset} onUpload={() => inputFile.current?.click()} />}
+        {view === "cleaning" && <CleaningPage dataset={selected} onApplied={dataset => { setDatasets(previous => [dataset, ...previous.filter(item => item.id !== dataset.id)]); setSelectedId(dataset.id); setToast("Cleaned copy created · source dataset preserved"); }} />}
         {view === "history" && <HistoryList items={history} onSelect={item => { setAnalysis(item); setSelectedId(item.dataset_id); setQuestion(item.question); setView("analysis"); }} />}
         {view === "traces" && <TracePage items={history} />}
         {view === "reports" && <ReportPage analysis={analysis} onGenerate={() => void createReport()} />}
@@ -297,6 +296,80 @@ function EmptyState({ title, detail, action }: { title: string; detail: string; 
 
 function DatasetList({ datasets, onSelect, onUpload }: { datasets: Dataset[]; onSelect: (id: string) => void; onUpload: () => void }) {
   return <section className="secondary-page"><div className="secondary-title"><div><small>YOUR WORKSPACE</small><h1>Datasets</h1><p>Inspect the profile and choose a dataset to ask a question.</p></div><button className="primary-button" onClick={onUpload}><Plus size={16} /> Add dataset</button></div>{datasets.map(dataset => <button className="dataset-card" key={dataset.id} onClick={() => onSelect(dataset.id)}><span className="dataset-icon large"><Database size={21} /></span><span><strong>{dataset.name}</strong><small>{dataset.filename} · {dataset.format.toUpperCase()}</small></span><span className="dataset-card-stat"><b>{dataset.profile.row_count.toLocaleString()}</b><small>rows</small></span><span className="dataset-card-stat"><b>{dataset.profile.column_count}</b><small>fields</small></span><ArrowRight size={17} /></button>)}</section>;
+}
+
+function CleaningPage({ dataset, onApplied }: { dataset: Dataset | null; onApplied: (dataset: Dataset) => void }) {
+  const [issues, setIssues] = useState<CleaningIssue[]>([]);
+  const [operations, setOperations] = useState<CleaningOperation[]>([]);
+  const [preview, setPreview] = useState<CleaningPreview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setIssues([]); setOperations([]); setPreview(null); setError("");
+    if (!dataset) return () => { active = false; };
+    setLoading(true);
+    api.cleaningPlan(dataset.id).then(result => { if (active) setIssues(result.issues); })
+      .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Could not inspect data quality."); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [dataset?.id]);
+
+  const toggleOperation = (operation: CleaningOperation) => {
+    setOperations(current => current.includes(operation) ? current.filter(item => item !== operation) : [...current, operation]);
+    setPreview(null);
+  };
+
+  const createPreview = async () => {
+    if (!dataset || !operations.length) return;
+    setWorking(true); setError("");
+    try { setPreview(await api.previewCleaning(dataset.id, operations)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Preview could not be created."); }
+    finally { setWorking(false); }
+  };
+
+  const applyOperations = async () => {
+    if (!dataset || !preview) return;
+    setWorking(true); setError("");
+    try { const result = await api.applyCleaning(dataset.id, preview.operations); onApplied(result.dataset); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "The cleaned copy could not be saved."); }
+    finally { setWorking(false); }
+  };
+
+  const sampleColumns = preview ? Array.from(new Set(preview.sample_after.flatMap(row => Object.keys(row)))).slice(0, 6) : [];
+
+  return <section className="secondary-page cleaning-page">
+    <div className="secondary-title"><div><small>DATA QUALITY · REVIEW BEFORE APPLYING</small><h1>Data Cleaning Copilot</h1><p>Inspect measured issues, choose the changes, and preview their effect before creating a cleaned copy.</p></div><Funnel size={25} /></div>
+    {!dataset ? <div className="inline-empty">Select or upload a dataset to inspect its quality.</div> : <>
+      <div className="cleaning-source"><Database size={17} /><div><strong>{dataset.name}</strong><small>{dataset.profile.row_count.toLocaleString()} rows · {dataset.profile.column_count} columns · Original stays unchanged</small></div>{dataset.derived_from && <span className="cleaning-derived-tag">Derived copy</span>}</div>
+      {loading ? <div className="inline-empty"><CircleNotch className="spin" size={17} /> Scanning for supported cleaning opportunities…</div> : <>
+        <div className="cleaning-section-heading"><div><h2>Detected issues</h2><span>{issues.length ? `${issues.length} reviewable suggestions` : "No supported changes suggested"}</span></div><span className="cleaning-disclaimer">No edits are applied automatically</span></div>
+        {issues.length ? <div className="cleaning-issue-list">{issues.map(issue => <CleaningIssueCard key={issue.operation} issue={issue} selected={operations.includes(issue.operation)} onToggle={() => toggleOperation(issue.operation)} />)}</div> : <div className="cleaning-empty"><Check size={18} /><div><strong>No supported cleanup suggestions</strong><p>The scanner checks missing-value markers, outer whitespace, and exact duplicate rows. Other data-quality issues may still need review.</p></div></div>}
+        {!!error && <div className="cleaning-error" role="alert"><WarningCircle size={16} />{error}</div>}
+        <div className="cleaning-actions"><span>{operations.length ? `${operations.length} operation${operations.length === 1 ? "" : "s"} selected` : "Select one or more suggestions to continue"}</span><button className="primary-button" type="button" disabled={!operations.length || working} onClick={() => void createPreview()}>{working ? <CircleNotch className="spin" size={16} /> : <MagnifyingGlass size={16} />}{working ? " Working…" : " Preview selected"}</button></div>
+        {preview && <section className="cleaning-preview"><div className="cleaning-preview-head"><div><small>REVIEW THE RESULT</small><h2>Preview before you apply</h2></div><span>{preview.operations.length} selected operation{preview.operations.length === 1 ? "" : "s"}</span></div>
+          <div className="cleaning-compare"><QualitySnapshot label="Before" profile={preview.before} /><ArrowRight size={17} /><QualitySnapshot label="After preview" profile={preview.after} /></div>
+          <div className="cleaning-change-list"><span>{preview.changes.missing_values_normalized.toLocaleString()} missing markers normalized</span><span>{preview.changes.text_values_trimmed.toLocaleString()} text values trimmed</span><span>{preview.changes.rows_removed.toLocaleString()} exact duplicate rows removed</span></div>
+          <div className="cleaning-sample"><strong>First rows in the preview</strong><div className="cleaning-table-scroll"><table><thead><tr>{sampleColumns.map(column => <th key={column}>{column}</th>)}</tr></thead><tbody>{preview.sample_after.map((row, index) => <tr key={index}>{sampleColumns.map(column => <td key={column}>{row[column] == null ? <span className="missing-value">Missing</span> : String(row[column])}</td>)}</tr>)}</tbody></table></div>{sampleColumns.length < preview.after.column_count && <small>Showing {sampleColumns.length} of {preview.after.column_count} columns · first 5 rows</small>}</div>
+          <div className="cleaning-apply-row"><span>The uploaded source remains available as its own dataset.</span><button className="primary-button" type="button" disabled={working} onClick={() => void applyOperations()}>{working ? <CircleNotch className="spin" size={16} /> : <Check size={16} />}{working ? " Saving copy…" : " Apply to new copy"}</button></div>
+        </section>}
+      </>}
+    </>}
+  </section>;
+}
+
+function CleaningIssueCard({ issue, selected, onToggle }: { issue: CleaningIssue; selected: boolean; onToggle: () => void }) {
+  return <button type="button" className={`cleaning-issue ${selected ? "selected" : ""}`} aria-pressed={selected} onClick={onToggle}>
+    <span className={`cleaning-issue-check ${selected ? "checked" : ""}`}>{selected ? <Check size={13} weight="bold" /> : null}</span>
+    <span className="cleaning-issue-main"><span className="cleaning-issue-top"><strong>{issue.title}</strong><span className={`cleaning-confidence ${issue.confidence}`}>{issue.confidence} confidence</span></span><small>{issue.description}</small><span className="cleaning-columns">{issue.columns.slice(0, 5).join(" · ")}{issue.columns.length > 5 ? ` · +${issue.columns.length - 5} columns` : ""}</span><span className="cleaning-recommendation">{issue.recommendation}</span></span>
+    <span className="cleaning-issue-count"><strong>{issue.count.toLocaleString()}</strong><small>affected</small></span>
+  </button>;
+}
+
+function QualitySnapshot({ label, profile }: { label: string; profile: Dataset["profile"] }) {
+  return <div className="quality-snapshot"><small>{label}</small><strong>{profile.row_count.toLocaleString()} <em>rows</em></strong><span>{profile.missing_cells.toLocaleString()} missing cells</span><span>{profile.duplicate_rows.toLocaleString()} exact duplicates</span></div>;
 }
 
 function HistoryList({ items, onSelect }: { items: Analysis[]; onSelect: (analysis: Analysis) => void }) {

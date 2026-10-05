@@ -15,10 +15,10 @@ import { api, type Analysis, type Dataset, type EvaluationReport } from "@/lib/a
 const DatasetUniverse = dynamic(() => import("@/components/DatasetUniverse").then(module => module.DatasetUniverse), { ssr: false, loading: () => <div className="landing-scene-loading">Preparing dataset map…</div> });
 
 const workflow = [
-  { icon: <MagnifyingGlass size={19} />, title: "Understand the question", description: "Match the request to the dataset schema and the right metric." },
-  { icon: <BracketsCurly size={19} />, title: "Plan with evidence", description: "Choose only the tools that fit the analysis task." },
-  { icon: <ChartBar size={19} />, title: "Compute deterministically", description: "Run Python and read-only SQL against the selected data." },
-  { icon: <ShieldCheck size={19} />, title: "Validate the result", description: "Check calculations, trace the sources, surface caveats." },
+  { icon: <Database size={19} />, title: "Choose a dataset", description: "Upload a CSV, XLSX, or JSON file, or try the included synthetic sample." },
+  { icon: <MagnifyingGlass size={19} />, title: "Ask a focused question", description: "Name the measure, segment, or time period you want to inspect." },
+  { icon: <BracketsCurly size={19} />, title: "Run measured analysis", description: "NEXUS selects deterministic Python and read-only SQL calculations from the question and schema." },
+  { icon: <ShieldCheck size={19} />, title: "Review evidence", description: "Inspect computed findings, source fields, caveats, charts, and the tool trace." },
 ];
 
 const capabilities = [
@@ -36,19 +36,34 @@ export function Landing() {
   const reduceMotion = useReducedMotion();
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [demoAnalysis, setDemoAnalysis] = useState<Analysis | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoError, setDemoError] = useState("");
   const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
   const [evaluationBusy, setEvaluationBusy] = useState(false);
   const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
   const [activeStep, setActiveStep] = useState(0);
 
   useEffect(() => {
-    api.datasets().then(items => {
-      const sample = items.find(item => item.id === "demo-sales") ?? items[0];
-      if (!sample) { setApiAvailable(false); return; }
+    let active = true;
+    api.dataset("demo-sales").then(sample => {
+      if (!active) return;
       setDataset(sample); setApiAvailable(true);
-      return api.analyze(sample.id, "Show the monthly revenue trend and compare regions.").then(setDemoAnalysis);
-    }).catch(() => setApiAvailable(false));
+    }).catch(() => { if (active) setApiAvailable(false); });
+    return () => { active = false; };
   }, []);
+
+  const runSampleAnalysis = async () => {
+    setDemoAnalysis(null); setDemoBusy(true); setDemoError("");
+    try {
+      const sample = dataset ?? await api.dataset("demo-sales");
+      setDataset(sample); setApiAvailable(true);
+      const result = await api.analyze(sample.id, "Show the monthly revenue trend and compare regions.");
+      setDemoAnalysis(result);
+    } catch (cause) {
+      setApiAvailable(false);
+      setDemoError(cause instanceof Error ? cause.message : "The sample analysis could not be completed.");
+    } finally { setDemoBusy(false); }
+  };
 
   const runEvaluation = async () => {
     setEvaluationBusy(true);
@@ -68,12 +83,12 @@ export function Landing() {
       <motion.div className="hero-copy" variants={{ hidden: { opacity: 0, y: 24, filter: "blur(7px)" }, visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1] } } }}>
         <div className="eyebrow"><span className="eyebrow-dot" />CREATED BY SAMYAK ANAND</div>
         <h1>Building AI<br /><span>that earns trust.</span></h1>
-        <p>AI engineering through grounded computation, applied machine learning, and evidence-backed product experiences. Meet NEXUS, my flagship project.</p>
-        <div className="hero-actions"><a href="/workspace" className="landing-primary">Launch Analyst <ArrowRight size={16} /></a><a href="#architecture" className="landing-secondary">View Architecture <ArrowDownRight size={16} /></a></div>
-        <div className="hero-proof"><span><CheckCircle size={15} />Deterministic analysis</span><span><CheckCircle size={15} />Source-linked findings</span></div>
+        <p>NEXUS takes you from a dataset to a result you can inspect: measured calculations, source-linked findings, and a clear record of how the answer was reached.</p>
+        <div className="hero-actions"><a href="/workspace" className="landing-primary">Analyze a dataset <ArrowRight size={16} /></a><a href="#demo" className="landing-secondary">Run a fresh sample <ArrowDownRight size={16} /></a></div>
+        <div className="hero-proof"><span><CheckCircle size={15} />No preloaded answer</span><span><CheckCircle size={15} />Computed when you run</span></div>
       </motion.div>
       <motion.div className="hero-visual-column" variants={{ hidden: { opacity: 0, y: 30, rotateX: 5, scale: 0.97 }, visible: { opacity: 1, y: 0, rotateX: 0, scale: 1, transition: { duration: 1, ease: [0.22, 1, 0.36, 1] } } }}>
-        <div className="hero-visual-head"><span className="hero-scene-title"><span className="live-pulse" />Dataset universe</span><span className="schematic-label">{dataset ? `${dataset.profile.row_count.toLocaleString()} rows · ${dataset.profile.column_count} fields` : apiAvailable === false ? "API offline" : "Loading dataset profile"}</span></div>
+        <div className="hero-visual-head"><span className="hero-scene-title"><span className="live-pulse" />Synthetic sample · live schema</span><span className="schematic-label">{dataset ? `${dataset.profile.row_count.toLocaleString()} rows · ${dataset.profile.column_count} fields` : apiAvailable === false ? "Sample unavailable" : "Loading sample schema"}</span></div>
         <div className="landing-scene">{dataset ? <DatasetUniverse columns={dataset.profile.columns} /> : <div className="landing-scene-loading"><CircleNotch className="spin" size={18} />{apiAvailable === false ? "Start the API to explore the live schema map." : "Preparing the live schema map…"}</div>}</div>
         <div className="hero-visual-foot"><span><i className="legend-dot numeric" />Numeric</span><span><i className="legend-dot categorical" />Categorical</span><span><i className="legend-dot temporal" />Temporal</span><span className="hero-foot-note">A map of the loaded schema, not a decorative model.</span></div>
       </motion.div>
@@ -83,19 +98,19 @@ export function Landing() {
     <motion.section className="signal-strip" aria-label="Demo capabilities" initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduceMotion ? 0 : 0.7, duration: reduceMotion ? 0 : 0.8 }}><span>CSV · XLSX · JSON</span><i /><span>Python &amp; SQL tools</span><i /><span>Evidence-first answers</span><i /><span>Evaluation included</span></motion.section>
 
     <section className="landing-section workflow-section" id="workflow">
-      <Reveal className="section-heading"><div><small>FROM QUESTION TO EVIDENCE</small><h2>A measured path<br />from data to decision.</h2></div><p>NEXUS inspects the schema, plans a focused analysis, runs only useful tools, and keeps each finding connected to its calculation.</p></Reveal>
+      <Reveal className="section-heading"><div><small>HOW AN ANALYSIS WORKS</small><h2>Start with your data.<br />Finish with evidence.</h2></div><p>You choose what to analyze. NEXUS runs deterministic calculations and shows the findings, chart, caveats, and trace so you can judge the result yourself.</p></Reveal>
       <div className="workflow-grid">{workflow.map((step, index) => <Reveal className={`workflow-step ${activeStep === index ? "selected" : ""}`} key={step.title}><button onClick={() => setActiveStep(index)} aria-pressed={activeStep === index}><span className="workflow-icon">{step.icon}</span><span className="workflow-number">0{index + 1}</span><strong>{step.title}</strong><p>{step.description}</p><span className="workflow-arrow"><ArrowRight size={15} /></span></button></Reveal>)}</div>
       <div className="workflow-detail" aria-live="polite"><span>STEP 0{activeStep + 1}</span><strong>{workflow[activeStep].title}</strong><p>{workflow[activeStep].description}</p></div>
     </section>
 
     <section className="universe-story" id="universe">
-      <Reveal className="universe-story-visual"><div className="story-visual-label"><Graph size={16} />SCHEMA, MADE VISIBLE</div>{dataset ? <div className="schema-preview"><div className="schema-preview-head"><span>FIELD</span><span>TYPE</span><span>UNIQUE</span></div>{dataset.profile.columns.slice(0, 8).map(column => <div className="schema-preview-row" key={column.name}><span><i className={`legend-dot ${column.semantic_type}`} />{column.name}</span><small>{column.semantic_type}</small><small>{column.unique.toLocaleString()}</small></div>)}<div className="schema-preview-foot">{dataset.profile.columns.length > 8 ? `+${dataset.profile.columns.length - 8} more fields · ` : ""}{dataset.profile.missing_cells.toLocaleString()} missing cells across the file</div></div> : <div className="landing-scene-loading">Connect the API to inspect the live schema.</div>}</Reveal>
+      <Reveal className="universe-story-visual"><div className="story-visual-label"><Graph size={16} />SYNTHETIC SAMPLE SCHEMA</div>{dataset ? <div className="schema-preview"><div className="schema-preview-head"><span>FIELD</span><span>TYPE</span><span>UNIQUE</span></div>{dataset.profile.columns.slice(0, 8).map(column => <div className="schema-preview-row" key={column.name}><span><i className={`legend-dot ${column.semantic_type}`} />{column.name}</span><small>{column.semantic_type}</small><small>{column.unique.toLocaleString()}</small></div>)}<div className="schema-preview-foot">{dataset.profile.columns.length > 8 ? `+${dataset.profile.columns.length - 8} more fields · ` : ""}{dataset.profile.missing_cells.toLocaleString()} missing cells in this synthetic sample</div></div> : <div className="landing-scene-loading">{apiAvailable === false ? "The sample profile is unavailable while the API is offline." : "Loading the synthetic sample schema…"}</div>}</Reveal>
       <Reveal className="universe-story-copy"><small>THE DATASET UNIVERSE</small><h2>See the shape<br />of your data.</h2><p>Field nodes are sized by distinct values and grouped by semantic type. A selected field reveals its profile; missingness is marked for review. The ordinary chart remains the evidence for the business question.</p><div className="story-facts">{dataset ? <><div><strong>{dataset.profile.row_count.toLocaleString()}</strong><span>rows inspected</span></div><div><strong>{dataset.profile.column_count}</strong><span>fields mapped</span></div><div><strong>{dataset.profile.missing_cells.toLocaleString()}</strong><span>missing cells</span></div></> : <div><strong>Waiting for API</strong><span>Live profile unavailable</span></div>}</div><a href="/workspace" className="inline-link">Explore the analysis workspace <ArrowRight size={15} /></a></Reveal>
     </section>
 
     <section className="landing-section live-demo-section" id="demo">
-      <Reveal className="section-heading"><div><small>LIVE ANALYSIS</small><h2>Computed values.<br />Inspectable evidence.</h2></div><p>The sample view is run against NEXUS's deterministic synthetic retail dataset. Charts and findings come from the current API response; when the API is offline, no sample results are fabricated.</p></Reveal>
-      <Reveal className="live-demo-grid"><article className="live-answer"><div className="live-answer-top"><span><Sparkle size={15} />DEMO QUESTION</span><span className="demo-status">{demoAnalysis ? "Computed" : apiAvailable === false ? "API offline" : "Running"}</span></div><h3>Show the monthly revenue trend and compare regions.</h3>{demoAnalysis ? <><div className="demo-finding"><small>FINDING</small><strong>{demoAnalysis.findings[0]?.title}</strong><p>{demoAnalysis.answer}</p></div><div className="demo-evidence"><CheckCircle size={15} /><span>{demoAnalysis.validation.passed ? "Evidence check passed" : "Needs review"}</span><span>·</span><span>{demoAnalysis.profile_summary.row_count.toLocaleString()} rows</span><span>·</span><span>{demoAnalysis.latency_ms.toFixed(1)} ms measured</span></div></> : <div className="demo-offline"><WarningCircle size={17} />{apiAvailable === false ? "Run FastAPI to load an actual analysis response." : "Waiting for the analysis response…"}</div>}<a className="inline-link" href="/workspace">Ask a follow-up question <ArrowRight size={15} /></a></article><div className="live-chart-panel"><AnalysisChart analysis={demoAnalysis} /></div></Reveal>
+      <Reveal className="section-heading"><div><small>TRY A FRESH ANALYSIS</small><h2>No saved result.<br />Run it and inspect it.</h2></div><p>This uses only NEXUS's included synthetic retail dataset. The API calculates a new result when you press the button; no uploaded dataset or previous analysis is shown here.</p></Reveal>
+      <Reveal className="live-demo-grid"><article className="live-answer"><div className="live-answer-top"><span><Sparkle size={15} />SYNTHETIC SAMPLE</span><span className={`demo-status ${apiAvailable === false ? "offline" : ""}`}>{demoAnalysis ? "Fresh result" : demoBusy ? "Calculating" : apiAvailable === false ? "API offline" : dataset ? "Ready to run" : "Loading sample"}</span></div><h3>Show the monthly revenue trend and compare regions.</h3>{demoAnalysis ? <><div className="demo-finding"><small>NEW RUN · {demoAnalysis.run_id.slice(0, 8)}</small><strong>{demoAnalysis.findings[0]?.title ?? "Computed analysis"}</strong><p>{demoAnalysis.answer}</p></div><div className="demo-evidence"><CheckCircle size={15} /><span>{demoAnalysis.validation.passed ? "Evidence check passed" : "Needs review"}</span><span>·</span><span>{demoAnalysis.profile_summary.row_count.toLocaleString()} rows</span><span>·</span><span>{demoAnalysis.latency_ms.toFixed(1)} ms measured</span></div></> : <div className="demo-offline"><span>{demoBusy ? <CircleNotch className="spin" size={17} /> : apiAvailable === false ? <WarningCircle size={17} /> : <Database size={17} />}</span>{demoError || (apiAvailable === false ? "Sample data is unavailable. The page does not display cached findings." : demoBusy ? "Calculating a new analysis from the synthetic sample…" : "Ready. Run the sample to generate a current API result.")}</div>}<button className="landing-primary demo-run-button" type="button" disabled={demoBusy} onClick={() => void runSampleAnalysis()}>{demoBusy ? "Running analysis…" : demoAnalysis ? "Run again" : apiAvailable === false ? "Retry sample analysis" : "Run sample analysis"}<ArrowRight size={15} /></button><a className="inline-link" href="/workspace">Open your workspace <ArrowRight size={15} /></a></article><div className="live-chart-panel">{demoAnalysis ? <AnalysisChart analysis={demoAnalysis} /> : <div className="demo-chart-empty"><ChartLine size={23} /><strong>Chart appears after a fresh run</strong><span>It will use the result returned by the API above.</span></div>}</div></Reveal>
     </section>
 
     <section className="landing-section capabilities-section" id="capabilities">
@@ -110,8 +125,8 @@ export function Landing() {
 
     <section className="landing-section architecture-section" id="architecture">
       <Reveal className="section-heading"><div><small>ENGINEERING ARCHITECTURE</small><h2>Small context.<br />Grounded computation.</h2></div><p>Raw rows stay in the analysis process. The planner sees schema and compact summaries, and the answer cites the computations that support it.</p></Reveal>
-      <Reveal className="architecture-flow" aria-label="NEXUS system architecture"><div><small>01 · EXPERIENCE</small><strong>Next.js workspace</strong><span>Upload · question · evidence</span></div><ArrowRight /><div><small>02 · ORCHESTRATE</small><strong>LangGraph workflow</strong><span>Profile → plan → branch</span></div><ArrowRight /><div><small>03 · COMPUTE</small><strong>Python · Pandas · SQL</strong><span>Statistics · anomalies · charts</span></div><ArrowRight /><div><small>04 · VALIDATE</small><strong>Evidence &amp; trace</strong><span>Checks · caveats · report</span></div></Reveal>
-      <Reveal className="stack-row"><span>Next.js 16</span><span>React Three Fiber</span><span>FastAPI</span><span>LangGraph</span><span>Pandas</span><span>PostgreSQL + pgvector schema</span></Reveal>
+      <Reveal className="architecture-flow" aria-label="NEXUS deterministic analysis flow"><div><small>01 · INPUT</small><strong>Choose a dataset</strong><span>Upload · profile · inspect</span></div><ArrowRight /><div><small>02 · PLAN</small><strong>Keyword planner</strong><span>Question and schema hints</span></div><ArrowRight /><div><small>03 · COMPUTE</small><strong>Python · Pandas · SQL</strong><span>Deterministic calculations</span></div><ArrowRight /><div><small>04 · REVIEW</small><strong>Evidence &amp; trace</strong><span>Findings · caveats · report</span></div></Reveal>
+      <Reveal className="stack-row"><span>Next.js 16</span><span>React Three Fiber</span><span>FastAPI</span><span>Python</span><span>Pandas</span><span>SQLite aggregate tool</span></Reveal>
     </section>
 
     <section className="profile-section" id="profile">

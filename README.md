@@ -2,7 +2,7 @@
 
 NEXUS is a portfolio-grade analytics prototype that profiles real tabular data, plans analysis from a user's question, runs deterministic Python/SQL tools, validates the results, and returns evidence-backed findings with a visible trace. It is designed to keep raw records out of model context.
 
-> **Current scope:** The first local build supports CSV, JSON, and XLSX uploads, a deterministic synthetic sales dataset, dataset profiling, analysis, anomaly checks, chart-ready output, reports, run traces, and a small evaluation suite. LLM synthesis, semantic embeddings, multi-user auth, persistent PostgreSQL repositories, and production sandbox isolation require configuration/next-phase work and are labeled in the UI. No claim is made that generated business findings are externally validated.
+> **Current scope:** The local build supports CSV, JSON, and XLSX uploads, a deterministic synthetic sales dataset, dataset profiling, analysis, anomaly checks, chart-ready output, reports, run traces, a small evaluation suite, and previewable cleaning operations that create a separate derived dataset. The landing page shows no cached analysis: the sample analysis is generated only when requested. LLM synthesis, semantic embeddings, multi-user auth, persistent PostgreSQL repositories, and production sandbox isolation are not implemented. No claim is made that generated business findings are externally validated.
 
 ## Architecture
 
@@ -65,6 +65,9 @@ The web app is served on port 3000 and FastAPI on port 8000. PostgreSQL with pgv
 | POST | `/datasets/upload` | Validate and ingest CSV, JSON, or XLSX |
 | GET | `/datasets` | List datasets |
 | GET | `/datasets/{id}` | Schema and data profile |
+| GET | `/datasets/{id}/cleaning` | Inspect supported cleaning suggestions |
+| POST | `/datasets/{id}/cleaning/preview` | Preview selected cleaning operations |
+| POST | `/datasets/{id}/cleaning/apply` | Create a cleaned copy while preserving the source |
 | POST | `/analysis` | Run a question against a dataset |
 | GET | `/analysis/{id}` | Fetch a run |
 | GET | `/analysis/{id}/trace` | Inspect tool trace |

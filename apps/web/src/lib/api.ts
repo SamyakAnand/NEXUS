@@ -16,6 +16,8 @@ export type Dataset = {
   filename: string;
   format: string;
   source: string;
+  derived_from?: string;
+  transformations?: CleaningOperation[];
   profile: {
     row_count: number;
     column_count: number;
@@ -27,6 +29,30 @@ export type Dataset = {
     temporal_columns: string[];
   };
 };
+
+export type CleaningOperation = "normalize_missing_values" | "trim_whitespace" | "remove_exact_duplicates";
+
+export type CleaningIssue = {
+  operation: CleaningOperation;
+  count: number;
+  columns: string[];
+  title: string;
+  description: string;
+  recommendation: string;
+  confidence: "high" | "medium";
+};
+
+export type CleaningPreview = {
+  source_dataset_id: string;
+  operations: CleaningOperation[];
+  changes: { missing_values_normalized: number; text_values_trimmed: number; rows_removed: number };
+  before: Dataset["profile"];
+  after: Dataset["profile"];
+  sample_before: Record<string, unknown>[];
+  sample_after: Record<string, unknown>[];
+};
+
+export type CleaningApplyResult = { dataset: Dataset; preview: CleaningPreview; reused: boolean };
 
 export type Finding = {
   title: string;
@@ -76,6 +102,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   datasets: () => request<Dataset[]>("/datasets"),
   dataset: (id: string) => request<Dataset>(`/datasets/${encodeURIComponent(id)}`),
+  cleaningPlan: (id: string) => request<{ dataset_id: string; issues: CleaningIssue[] }>(`/datasets/${encodeURIComponent(id)}/cleaning`),
+  previewCleaning: (id: string, operations: CleaningOperation[]) => request<CleaningPreview>(`/datasets/${encodeURIComponent(id)}/cleaning/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operations }) }),
+  applyCleaning: (id: string, operations: CleaningOperation[]) => request<CleaningApplyResult>(`/datasets/${encodeURIComponent(id)}/cleaning/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operations }) }),
   analyze: (datasetId: string, question: string) => request<Analysis>("/analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataset_id: datasetId, question }) }),
   analysis: (runId: string) => request<Analysis>(`/analysis/${encodeURIComponent(runId)}`),
   upload: async (file: File) => {
