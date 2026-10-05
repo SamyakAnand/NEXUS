@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   transpilePackages: ["three"],
   turbopack: { root: process.cwd() },
   async rewrites() {
+    // Vercel's project-level services routing sends /api/* to FastAPI.
+    // Keep this proxy for local development and Docker only.
+    if (process.env.VERCEL) return [];
     return [{ source: "/api/:path*", destination: `${backend}/:path*` }];
   },
 };
