@@ -31,6 +31,17 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "15")) * 1024 * 1024
 app = FastAPI(title="NEXUS Analyst API", version="0.1.0", description="Evidence-led deterministic data analysis API")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_credentials=True, allow_methods=["GET", "POST"], allow_headers=["*"])
 
+
+@app.middleware("http")
+async def strip_vercel_api_prefix(request, call_next):
+    # Vercel forwards the original public path to a service. Support both
+    # /api/* (deployment routing) and the API's local / route paths.
+    path = request.scope["path"]
+    if path == "/api" or path.startswith("/api/"):
+        request.scope["path"] = path[4:] or "/"
+        request.scope["raw_path"] = request.scope["raw_path"][4:]
+    return await call_next(request)
+
 datasets: dict[str, dict[str, Any]] = {}
 frames: dict[str, pd.DataFrame] = {}
 runs: dict[str, dict[str, Any]] = {}
