@@ -49,6 +49,12 @@ npm run dev
 
 Open http://localhost:3000. API docs are at http://localhost:8000/docs.
 
+## ARGUS AI experience
+
+The web interface presents the local analytics prototype as ARGUS AI. The public landing page is at `/`; the application areas are `/overview`, `/workspace`, `/documents`, `/search`, `/graph`, `/sessions`, `/evaluation`, `/models`, and `/settings`. The existing analysis workspace remains available, including dataset upload, deterministic analysis, SQL, cleaning previews, reports, and run traces.
+
+The new product routes use the current FastAPI API and label unavailable capabilities explicitly. Documents currently means tabular dataset files (CSV, JSON, XLSX); search calls the deterministic analysis endpoint; the graph displays source lineage; sessions are stored in the current browser; and evaluation runs the local fixture suite. Enterprise document RAG, multimodal ingestion, authenticated tenants, persistent session history, and model-provider observability are not represented as live features.
+
 ## Docker
 
 ```powershell

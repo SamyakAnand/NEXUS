@@ -1,138 +1,122 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Image from "next/image";
+import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  ArrowDownRight, ArrowRight, BracketsCurly, ChartBar, ChartLine, CheckCircle,
-  CircleNotch, Database, GithubLogo, Graph, MagnifyingGlass, ShieldCheck,
-  Sparkle, Table, TerminalWindow, WarningCircle,
+  ArrowDown, ArrowRight, ArrowUpRight, BracketsCurly, ChartLine, CheckCircle,
+  CircleNotch, Database, Eye, FileText, Graph, ImageSquare, MagnifyingGlass,
+  ShieldCheck, Sparkle, Table, WarningCircle,
 } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { AnalysisChart } from "@/components/AnalysisChart";
-import { api, type Analysis, type Dataset, type EvaluationReport } from "@/lib/api";
+import { api, type Analysis, type Dataset } from "@/lib/api";
 
-const DatasetUniverse = dynamic(() => import("@/components/DatasetUniverse").then(module => module.DatasetUniverse), { ssr: false, loading: () => <div className="landing-scene-loading">Preparing dataset map…</div> });
-
-const workflow = [
-  { icon: <Database size={19} />, title: "Choose a dataset", description: "Upload a CSV, XLSX, or JSON file, or try the included synthetic sample." },
-  { icon: <MagnifyingGlass size={19} />, title: "Ask a focused question", description: "Name the measure, segment, or time period you want to inspect." },
-  { icon: <BracketsCurly size={19} />, title: "Run measured analysis", description: "NEXUS selects deterministic Python and read-only SQL calculations from the question and schema." },
-  { icon: <ShieldCheck size={19} />, title: "Review evidence", description: "Inspect computed findings, source fields, caveats, charts, and the tool trace." },
-];
+const InsightCore = dynamic(() => import("@/components/InsightCore").then(module => module.InsightCore), {
+  ssr: false,
+  loading: () => <div className="argus-core-loading"><span /><span /><span />Loading the product map…</div>,
+});
 
 const capabilities = [
-  { icon: <Database size={18} />, title: "Schema-first ingestion", description: "CSV, XLSX and JSON profiling with missingness, cardinality and field types." },
-  { icon: <TerminalWindow size={18} />, title: "Observable tool runs", description: "See selected tools, input summaries, outputs, validation and measured latency." },
-  { icon: <ChartLine size={18} />, title: "Evidence-linked visuals", description: "Charts use computed aggregates and name the row source and method." },
+  { icon: Database, title: "Structured data analysis", status: "Available", tone: "ready", detail: "Profile CSV, XLSX, and JSON datasets, then run deterministic analysis over their fields." },
+  { icon: ShieldCheck, title: "Evidence-led findings", status: "Available", tone: "ready", detail: "Review computed findings, data quality caveats, and the analysis steps that produced them." },
+  { icon: Table, title: "Table understanding", status: "Dataset prototype", tone: "partial", detail: "Tabular uploads are supported. Extracting tables from arbitrary PDFs or images is not implemented." },
+  { icon: MagnifyingGlass, title: "Hybrid knowledge retrieval", status: "Not implemented", tone: "future", detail: "Semantic embeddings, BM25, rank fusion, and document-grounded answers are not available yet." },
+  { icon: Graph, title: "Knowledge graph", status: "Lineage prototype", tone: "partial", detail: "The workspace can visualize local source and analysis lineage; document entity extraction is not implemented." },
+  { icon: ChartLine, title: "Evaluation lab", status: "Fixture suite", tone: "partial", detail: "Current evaluations measure deterministic tool routing and small metadata fixtures, not RAG quality." },
 ];
 
-function Reveal({ children, className = "", ...props }: { children: React.ReactNode; className?: string; "aria-label"?: string }) {
-  const reduceMotion = useReducedMotion();
-  return <motion.div {...props} className={className} initial={reduceMotion ? false : { opacity: 0, y: 22, filter: "blur(5px)" }} whileInView={{ opacity: 1, y: 0, filter: "blur(0px)" }} viewport={{ once: true, amount: 0.12 }} transition={{ duration: reduceMotion ? 0 : 0.7, ease: [0.22, 1, 0.36, 1] }}>{children}</motion.div>;
-}
+const flow = [
+  { n: "01", title: "Bring in data", detail: "Upload a supported dataset." },
+  { n: "02", title: "Ask a question", detail: "Frame the analysis you need." },
+  { n: "03", title: "Compute a result", detail: "Deterministic tools inspect the data." },
+  { n: "04", title: "Review evidence", detail: "Inspect findings, caveats, and trace." },
+];
 
 export function Landing() {
   const reduceMotion = useReducedMotion();
   const [dataset, setDataset] = useState<Dataset | null>(null);
-  const [demoAnalysis, setDemoAnalysis] = useState<Analysis | null>(null);
-  const [demoBusy, setDemoBusy] = useState(false);
-  const [demoError, setDemoError] = useState("");
-  const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
-  const [evaluationBusy, setEvaluationBusy] = useState(false);
-  const [apiAvailable, setApiAvailable] = useState<boolean | null>(null);
-  const [activeStep, setActiveStep] = useState(0);
+  const [apiState, setApiState] = useState<"checking" | "available" | "unavailable">("checking");
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  const [activeCapability, setActiveCapability] = useState(0);
 
   useEffect(() => {
-    let active = true;
-    api.dataset("demo-sales").then(sample => {
-      if (!active) return;
-      setDataset(sample); setApiAvailable(true);
-    }).catch(() => { if (active) setApiAvailable(false); });
-    return () => { active = false; };
+    let current = true;
+    api.dataset("demo-sales").then(value => {
+      if (!current) return;
+      setDataset(value); setApiState("available");
+    }).catch(() => { if (current) setApiState("unavailable"); });
+    return () => { current = false; };
   }, []);
 
-  const runSampleAnalysis = async () => {
-    setDemoAnalysis(null); setDemoBusy(true); setDemoError("");
+  const runSample = async () => {
+    setRunning(true); setError(""); setAnalysis(null);
     try {
       const sample = dataset ?? await api.dataset("demo-sales");
-      setDataset(sample); setApiAvailable(true);
+      setDataset(sample);
       const result = await api.analyze(sample.id, "Which regions had the highest and lowest total revenue?");
-      setDemoAnalysis(result);
+      setAnalysis(result); setApiState("available");
     } catch (cause) {
-      setApiAvailable(false);
-      setDemoError(cause instanceof Error ? cause.message : "The sample analysis could not be completed.");
-    } finally { setDemoBusy(false); }
+      setApiState("unavailable");
+      setError(cause instanceof Error ? cause.message : "The sample analysis could not be completed.");
+    } finally { setRunning(false); }
   };
 
-  const runEvaluation = async () => {
-    setEvaluationBusy(true);
-    try { setEvaluation(await api.evaluate()); }
-    catch { setApiAvailable(false); }
-    finally { setEvaluationBusy(false); }
-  };
+  const Reveal = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <motion.div
+    className={className}
+    initial={reduceMotion ? false : { opacity: 0, y: 18 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, amount: 0.15 }}
+    transition={{ duration: reduceMotion ? 0 : 0.55, ease: [0.22, 1, 0.36, 1] }}
+  >{children}</motion.div>;
 
-  return <main className="landing-page">
-    <motion.header className="landing-header" initial={reduceMotion ? false : { opacity: 0, y: -14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.6, ease: [0.22, 1, 0.36, 1] }}>
-      <a className="landing-brand" href="/" aria-label="NEXUS home"><Graph size={24} weight="bold" /><strong>NEXUS</strong><span className="landing-brand-rule" /><small>Autonomous Data Intelligence</small></a>
-      <nav className="landing-nav" aria-label="Main navigation"><a href="#workflow">How it works</a><a href="#architecture">Architecture</a><a href="#profile">About Samyak</a></nav>
-      <a className="landing-launch" href="/workspace">Launch analyst <ArrowRight size={16} /></a>
-    </motion.header>
+  return <main className="argus-landing">
+    <header className="argus-landing-header">
+      <Link className="argus-public-brand" href="/" aria-label="ARGUS AI home"><span><Eye size={20} weight="duotone" /></span><strong>ARGUS</strong><small>AI</small></Link>
+      <nav aria-label="Landing navigation"><a href="#capabilities">Platform</a><a href="#how-it-works">How it works</a><a href="#workspace-preview">Workspace</a></nav>
+      <Link className="argus-header-link" href="/overview">Open platform <ArrowUpRight size={15} /></Link>
+    </header>
 
-    <motion.section className="landing-hero" initial={reduceMotion ? false : "hidden"} animate="visible" variants={{ hidden: {}, visible: { transition: { staggerChildren: reduceMotion ? 0 : 0.13, delayChildren: reduceMotion ? 0 : 0.12 } } }}>
-      <motion.div className="hero-copy" variants={{ hidden: { opacity: 0, y: 24, filter: "blur(7px)" }, visible: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.85, ease: [0.22, 1, 0.36, 1] } } }}>
-        <div className="eyebrow"><span className="eyebrow-dot" />CREATED BY SAMYAK ANAND</div>
-        <h1>Building AI<br /><span>that earns trust.</span></h1>
-        <p>NEXUS takes you from a dataset to a result you can inspect: measured calculations, source-linked findings, and a clear record of how the answer was reached.</p>
-        <div className="hero-actions"><a href="/workspace" className="landing-primary">Analyze a dataset <ArrowRight size={16} /></a><a href="#demo" className="landing-secondary">Run a fresh sample <ArrowDownRight size={16} /></a></div>
-        <div className="hero-proof"><span><CheckCircle size={15} />No preloaded answer</span><span><CheckCircle size={15} />Computed when you run</span></div>
-      </motion.div>
-      <motion.div className="hero-visual-column" variants={{ hidden: { opacity: 0, y: 30, rotateX: 5, scale: 0.97 }, visible: { opacity: 1, y: 0, rotateX: 0, scale: 1, transition: { duration: 1, ease: [0.22, 1, 0.36, 1] } } }}>
-        <div className="hero-visual-head"><span className="hero-scene-title"><span className="live-pulse" />Synthetic sample · live schema</span><span className="schematic-label">{dataset ? `${dataset.profile.row_count.toLocaleString()} rows · ${dataset.profile.column_count} fields` : apiAvailable === false ? "Sample unavailable" : "Loading sample schema"}</span></div>
-        <div className="landing-scene">{dataset ? <DatasetUniverse columns={dataset.profile.columns} /> : <div className="landing-scene-loading"><CircleNotch className="spin" size={18} />{apiAvailable === false ? "Start the API to explore the live schema map." : "Preparing the live schema map…"}</div>}</div>
-        <div className="hero-visual-foot"><span><i className="legend-dot numeric" />Numeric</span><span><i className="legend-dot categorical" />Categorical</span><span><i className="legend-dot temporal" />Temporal</span><span className="hero-foot-note">A map of the loaded schema, not a decorative model.</span></div>
-      </motion.div>
-      <motion.span className="hero-index" variants={{ hidden: { opacity: 0 }, visible: { opacity: 1, transition: { delay: 0.8 } } }}>N / 01</motion.span>
-    </motion.section>
-
-    <motion.section className="signal-strip" aria-label="Demo capabilities" initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduceMotion ? 0 : 0.7, duration: reduceMotion ? 0 : 0.8 }}><span>CSV · XLSX · JSON</span><i /><span>Python &amp; SQL tools</span><i /><span>Evidence-first answers</span><i /><span>Evaluation included</span></motion.section>
-
-    <section className="landing-section workflow-section" id="workflow">
-      <Reveal className="section-heading"><div><small>HOW AN ANALYSIS WORKS</small><h2>Start with your data.<br />Finish with evidence.</h2></div><p>You choose what to analyze. NEXUS runs deterministic calculations and shows the findings, chart, caveats, and trace so you can judge the result yourself.</p></Reveal>
-      <div className="workflow-grid">{workflow.map((step, index) => <Reveal className={`workflow-step ${activeStep === index ? "selected" : ""}`} key={step.title}><button onClick={() => setActiveStep(index)} aria-pressed={activeStep === index}><span className="workflow-icon">{step.icon}</span><span className="workflow-number">0{index + 1}</span><strong>{step.title}</strong><p>{step.description}</p><span className="workflow-arrow"><ArrowRight size={15} /></span></button></Reveal>)}</div>
-      <div className="workflow-detail" aria-live="polite"><span>STEP 0{activeStep + 1}</span><strong>{workflow[activeStep].title}</strong><p>{workflow[activeStep].description}</p></div>
+    <section className="argus-hero">
+      <div className="argus-hero-copy">
+        <div className="argus-overline"><span />MULTIMODAL KNOWLEDGE INTELLIGENCE</div>
+        <h1>Your data has answers.<br /><em>ARGUS finds the evidence.</em></h1>
+        <p>Turn complex information into intelligence you can inspect. Start with the data-analysis workspace today; expand toward multimodal retrieval with evidence at its core.</p>
+        <div className="argus-hero-actions"><Link className="argus-button-primary" href="/workspace">Explore intelligence <ArrowRight size={16} /></Link><a className="argus-button-quiet" href="#how-it-works">See how it works <ArrowDown size={15} /></a></div>
+        <div className="argus-hero-status"><span className={`argus-api-state ${apiState}`}><i />{apiState === "available" ? "Local analysis API connected" : apiState === "unavailable" ? "Local analysis API unavailable" : "Checking local API"}</span><span>Prototype · no authentication</span></div>
+      </div>
+      <div className="argus-hero-scene-wrap"><InsightCore /><div className="argus-scene-index">A / 01 <span>OBSERVE · CONNECT · VERIFY</span></div></div>
+      <span className="argus-hero-watermark" aria-hidden="true">A</span>
     </section>
 
-    <section className="universe-story" id="universe">
-      <Reveal className="universe-story-visual"><div className="story-visual-label"><Graph size={16} />SYNTHETIC SAMPLE SCHEMA</div>{dataset ? <div className="schema-preview"><div className="schema-preview-head"><span>FIELD</span><span>TYPE</span><span>UNIQUE</span></div>{dataset.profile.columns.slice(0, 8).map(column => <div className="schema-preview-row" key={column.name}><span><i className={`legend-dot ${column.semantic_type}`} />{column.name}</span><small>{column.semantic_type}</small><small>{column.unique.toLocaleString()}</small></div>)}<div className="schema-preview-foot">{dataset.profile.columns.length > 8 ? `+${dataset.profile.columns.length - 8} more fields · ` : ""}{dataset.profile.missing_cells.toLocaleString()} missing cells in this synthetic sample</div></div> : <div className="landing-scene-loading">{apiAvailable === false ? "The sample profile is unavailable while the API is offline." : "Loading the synthetic sample schema…"}</div>}</Reveal>
-      <Reveal className="universe-story-copy"><small>THE DATASET UNIVERSE</small><h2>See the shape<br />of your data.</h2><p>Field nodes are sized by distinct values and grouped by semantic type. A selected field reveals its profile; missingness is marked for review. The ordinary chart remains the evidence for the business question.</p><div className="story-facts">{dataset ? <><div><strong>{dataset.profile.row_count.toLocaleString()}</strong><span>rows inspected</span></div><div><strong>{dataset.profile.column_count}</strong><span>fields mapped</span></div><div><strong>{dataset.profile.missing_cells.toLocaleString()}</strong><span>missing cells</span></div></> : <div><strong>Waiting for API</strong><span>Live profile unavailable</span></div>}</div><a href="/workspace" className="inline-link">Explore the analysis workspace <ArrowRight size={15} /></a></Reveal>
+    <div className="argus-signal-line"><span>ARGUS AI</span><i />SEE BEYOND DATA. DISCOVER THE TRUTH.<i /><span>BUILT AROUND TRACEABLE WORK</span></div>
+
+    <section className="argus-section argus-flow-section" id="how-it-works">
+      <Reveal className="argus-section-intro"><div><span className="argus-eyebrow">FROM INPUT TO INSIGHT</span><h2>Intelligence should<br />show its work.</h2></div><p>The current workspace turns supported tabular data into measured, reviewable analysis. The product direction extends that discipline to documents, images, and enterprise knowledge.</p></Reveal>
+      <div className="argus-flow-grid">{flow.map((step, index) => <Reveal className={`argus-flow-card ${index === 3 ? "highlight" : ""}`} key={step.n}><span>{step.n}</span><strong>{step.title}</strong><p>{step.detail}</p>{index < flow.length - 1 && <ArrowRight size={15} />}</Reveal>)}</div>
     </section>
 
-    <section className="landing-section live-demo-section" id="demo">
-      <Reveal className="section-heading"><div><small>TRY A FRESH ANALYSIS</small><h2>No saved result.<br />Run it and inspect it.</h2></div><p>This uses only NEXUS's included synthetic retail dataset. The API calculates a new result when you press the button; no uploaded dataset or previous analysis is shown here.</p></Reveal>
-    <Reveal className="live-demo-grid"><article className="live-answer"><div className="live-answer-top"><span><Sparkle size={15} />SYNTHETIC SAMPLE</span><span className={`demo-status ${apiAvailable === false ? "offline" : ""}`}>{demoAnalysis ? "Fresh result" : demoBusy ? "Calculating" : apiAvailable === false ? "API offline" : dataset ? "Ready to run" : "Loading sample"}</span></div><h3>Which regions had the highest and lowest total revenue?</h3>{demoAnalysis ? <><div className="demo-finding"><small>NEW RUN · {demoAnalysis.run_id.slice(0, 8)}</small><strong>{demoAnalysis.findings[0]?.title ?? "Computed analysis"}</strong><p>{demoAnalysis.answer}</p></div><div className="demo-evidence"><CheckCircle size={15} /><span>{demoAnalysis.validation.passed ? "Evidence check passed" : "Needs review"}</span><span>·</span><span>{demoAnalysis.profile_summary.row_count.toLocaleString()} rows</span><span>·</span><span>{demoAnalysis.latency_ms.toFixed(1)} ms measured</span></div></> : <div className="demo-offline"><span>{demoBusy ? <CircleNotch className="spin" size={17} /> : apiAvailable === false ? <WarningCircle size={17} /> : <Database size={17} />}</span>{demoError || (apiAvailable === false ? "Sample data is unavailable. The page does not display cached findings." : demoBusy ? "Calculating a new analysis from the synthetic sample…" : "Ready. Run the sample to generate a current API result.")}</div>}<button className="landing-primary demo-run-button" type="button" disabled={demoBusy} onClick={() => void runSampleAnalysis()}>{demoBusy ? "Running analysis…" : demoAnalysis ? "Run again" : apiAvailable === false ? "Retry sample analysis" : "Run sample analysis"}<ArrowRight size={15} /></button><a className="inline-link" href="/workspace">Open your workspace <ArrowRight size={15} /></a></article><div className="live-chart-panel">{demoAnalysis ? <AnalysisChart analysis={demoAnalysis} /> : <div className="demo-chart-empty"><ChartLine size={23} /><strong>Chart appears after a fresh run</strong><span>It will use the result returned by the API above.</span></div>}</div></Reveal>
+    <section className="argus-capabilities-section" id="capabilities">
+      <div className="argus-section argus-capabilities-inner">
+        <Reveal className="argus-section-intro"><div><span className="argus-eyebrow">A SYSTEM, NOT A CHAT WINDOW</span><h2>Every connection<br />has a source.</h2></div><p>Explore what ARGUS does today and what remains a design target. Availability labels reflect this local prototype, not a production deployment.</p></Reveal>
+        <div className="argus-capability-layout">
+          <div className="argus-capability-list" role="tablist" aria-label="ARGUS capability details">{capabilities.map(({ icon: Icon, title, status, tone }, index) => <button type="button" role="tab" aria-selected={activeCapability === index} className={activeCapability === index ? "active" : ""} key={title} onClick={() => setActiveCapability(index)}><span className="argus-cap-icon"><Icon size={18} /></span><span><strong>{title}</strong><small className={`argus-feature-status ${tone}`}>{status}</small></span><ArrowRight size={15} /></button>)}</div>
+          <Reveal className="argus-capability-detail"><span className="argus-detail-icon">{(() => { const Icon = capabilities[activeCapability].icon; return <Icon size={22} />; })()}</span><span className={`argus-feature-status ${capabilities[activeCapability].tone}`}>{capabilities[activeCapability].status}</span><h3>{capabilities[activeCapability].title}</h3><p>{capabilities[activeCapability].detail}</p><Link href={activeCapability < 2 ? "/workspace" : activeCapability === 4 ? "/graph" : "/evaluation"}>Explore current experience <ArrowRight size={14} /></Link></Reveal>
+        </div>
+      </div>
     </section>
 
-    <section className="landing-section capabilities-section" id="capabilities">
-      <Reveal className="section-heading"><div><small>BUILT FOR ANALYSIS</small><h2>Trust the work<br />behind the answer.</h2></div><p>Engineering details are part of the product: compact inputs, deterministic computation, validation, and an inspectable run trace.</p></Reveal>
-      <div className="capability-list">{capabilities.map((item, index) => <Reveal className="capability-row" key={item.title}><span className="capability-index">0{index + 1}</span><span className="capability-icon">{item.icon}</span><strong>{item.title}</strong><p>{item.description}</p><ArrowRight size={16} /></Reveal>)}</div>
+    <section className="argus-section argus-demo-section" id="workspace-preview">
+      <Reveal className="argus-section-intro"><div><span className="argus-eyebrow">A WORKING PRODUCT PREVIEW</span><h2>Run a fresh analysis.<br />Inspect what it used.</h2></div><p>This sample uses the included synthetic retail dataset. The answer only appears after the API returns a new analysis.</p></Reveal>
+      <div className="argus-demo-layout">
+        <article className="argus-demo-card"><div className="argus-card-topline"><span><Sparkle size={14} /> SYNTHETIC DATASET</span><span className={`argus-demo-pill ${analysis ? "ready" : ""}`}><i />{analysis ? "Fresh result" : apiState === "unavailable" ? "API unavailable" : "Ready to run"}</span></div><small className="argus-demo-label">SAMPLE QUESTION</small><h3>Which regions had the highest and lowest total revenue?</h3>{analysis ? <div className="argus-demo-result"><span>RUN {analysis.run_id.slice(0, 8)} · {analysis.latency_ms.toFixed(1)} MS MEASURED</span><strong>{analysis.findings[0]?.title ?? "Analysis complete"}</strong><p>{analysis.answer}</p><div><CheckCircle size={14} />{analysis.validation.passed ? "Evidence check passed" : "Review needed"} · {analysis.profile_summary.row_count.toLocaleString()} rows</div></div> : <div className={`argus-demo-empty ${error ? "has-error" : ""}`}>{running ? <CircleNotch className="spin" size={17} /> : error ? <WarningCircle size={17} /> : <Database size={17} />}<span>{error || (running ? "Calculating a fresh result…" : "No saved result is shown here. Run the sample to request a new one.")}</span></div>}<button className="argus-button-primary" type="button" onClick={() => void runSample()} disabled={running || apiState === "unavailable"}>{running ? "Running…" : analysis ? "Run again" : "Run sample analysis"}<ArrowRight size={15} /></button></article>
+        <div className="argus-demo-workspace" aria-label="Preview of the actual analysis workspace"><div className="argus-preview-chrome"><span /><span /><span /><small>ARGUS / KNOWLEDGE WORKSPACE</small></div><div className="argus-preview-grid"><div className="argus-preview-side"><span>DATASETS</span><strong><Database size={13} />{dataset?.name ?? (apiState === "unavailable" ? "No API connection" : "Loading sample…")}</strong><i /><i /><i /></div><div className="argus-preview-main"><div><span>ANALYSIS</span><small>{dataset ? `${dataset.profile.row_count.toLocaleString()} rows · ${dataset.profile.column_count} fields` : "Live profile unavailable"}</small></div><div className="argus-preview-question"><MagnifyingGlass size={13} />Ask a question about this dataset</div><div className="argus-preview-bars"><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="argus-preview-evidence"><ShieldCheck size={14} /><span>Findings, source fields, and run trace</span></div></div></div><div className="argus-preview-foot"><span>WORKSPACE PREVIEW</span><small>Actual analysis UI opens from the button.</small></div></div>
+      </div>
     </section>
 
-    <section className="evaluation-section" id="evaluation">
-      <Reveal className="evaluation-intro"><small>AI QUALITY CONSOLE</small><h2>Evaluate the system,<br />not the screenshot.</h2><p>Run routing and retrieval fixtures locally. Metrics are computed from test cases; token use and model cost remain unavailable without a configured provider.</p><button className="landing-secondary" onClick={() => void runEvaluation()} disabled={evaluationBusy}>{evaluationBusy ? <CircleNotch className="spin" size={16} /> : <ArrowRight size={16} />}{evaluationBusy ? "Running suite…" : "Run evaluation"}</button></Reveal>
-      <Reveal className="evaluation-console"><div className="console-top"><span><span className="status-dot" />EVALUATION RUN</span><span>{evaluation ? `${evaluation.metrics.cases_passed}/${evaluation.metrics.cases_total} cases passed` : "No run yet"}</span></div>{evaluation ? <><div className="console-metrics">{["tool_selection_accuracy", "tool_success_rate", "recall_at_k", "precision_at_k", "mrr"].map(key => <div key={key}><strong>{Math.round(Number(evaluation.metrics[key] ?? 0) * 100)}%</strong><small>{key.replaceAll("_", " ")}</small></div>)}</div><div className="console-cases">{evaluation.cases.map(item => <div key={item.id}><span className={item.pass ? "case-pass" : "case-fail"}>{item.pass ? <CheckCircle size={14} /> : <WarningCircle size={14} />}</span><span>{item.question}</span><small>{item.pass ? "PASS" : "FAIL"}</small></div>)}</div><p className="console-caveat">Retrieval fixtures measure column metadata ranking; they do not claim vector-search quality.</p></> : <div className="console-placeholder"><div className="placeholder-rule" /><div className="placeholder-rule short" /><div className="placeholder-rule" /><small>Run the suite to populate measured results.</small></div>}</Reveal>
-    </section>
+    <section className="argus-closing"><div><span className="argus-eyebrow">THE ARGUS PRINCIPLE</span><h2>Do more than find information.<br /><em>Reveal the evidence behind it.</em></h2><p>Start with the working knowledge workspace and inspect the current prototype’s boundaries.</p><Link className="argus-button-primary" href="/overview">Enter ARGUS AI <ArrowRight size={16} /></Link></div><div className="argus-closing-mark"><Eye size={86} weight="thin" /><span>OBSERVE<br />TRACE<br />VERIFY</span></div></section>
 
-    <section className="landing-section architecture-section" id="architecture">
-      <Reveal className="section-heading"><div><small>ENGINEERING ARCHITECTURE</small><h2>Small context.<br />Grounded computation.</h2></div><p>Raw rows stay in the analysis process. The planner sees schema and compact summaries, and the answer cites the computations that support it.</p></Reveal>
-      <Reveal className="architecture-flow" aria-label="NEXUS deterministic analysis flow"><div><small>01 · INPUT</small><strong>Choose a dataset</strong><span>Upload · profile · inspect</span></div><ArrowRight /><div><small>02 · PLAN</small><strong>Keyword planner</strong><span>Question and schema hints</span></div><ArrowRight /><div><small>03 · COMPUTE</small><strong>Python · Pandas · SQL</strong><span>Deterministic calculations</span></div><ArrowRight /><div><small>04 · REVIEW</small><strong>Evidence &amp; trace</strong><span>Findings · caveats · report</span></div></Reveal>
-      <Reveal className="stack-row"><span>Next.js 16</span><span>React Three Fiber</span><span>FastAPI</span><span>Python</span><span>Pandas</span><span>SQLite aggregate tool</span></Reveal>
-    </section>
-
-    <section className="profile-section" id="profile">
-      <Reveal className="creator-card"><div className="creator-portrait"><div className="portrait-orbit portrait-orbit-one" /><div className="portrait-orbit portrait-orbit-two" /><div className="creator-photo-frame"><Image src="/creator/samyak-anand.jpeg" alt="Samyak Anand, creator of NEXUS" width={900} height={1600} sizes="(max-width: 760px) 70vw, 300px" className="creator-photo" unoptimized /></div><span className="portrait-caption"><i /> NEXUS · FOUNDER</span></div><div className="creator-copy"><small>AN INDEPENDENT PROJECT BY SAMYAK ANAND</small><h2>Built around a simple belief:<br /><span>AI should show its work.</span></h2><p>I created NEXUS to make data analysis more transparent. It profiles data, chooses relevant computations, and keeps findings tied to evidence—so you can inspect how an answer was reached.</p><div className="creator-signature"><span className="creator-line" /><strong>Samyak Anand</strong><span>Creator · NEXUS</span></div><a href="/workspace" className="inline-link">Step inside the project <ArrowRight size={15} /></a></div><span className="creator-index">N / CREATOR</span></Reveal>
-    </section>
-
-    <footer className="landing-footer"><div className="footer-main"><a className="landing-brand" href="/workspace"><Graph size={22} weight="bold" /><strong>NEXUS</strong></a><p>Created by Samyak Anand<br />Autonomous Data Intelligence</p><a href="/workspace" className="landing-primary">Launch Analyst <ArrowRight size={15} /></a></div><div className="footer-bottom"><span>Deterministic analysis prototype</span><a className="repo-note" href="https://github.com/SamyakAnand/NEXUS" target="_blank" rel="noreferrer"><GithubLogo size={15} /> GitHub repository</a><span>LLM, durable PostgreSQL persistence, and vector retrieval are not enabled.</span></div></footer>
+    <footer className="argus-footer"><Link className="argus-public-brand" href="/"><span><Eye size={18} weight="duotone" /></span><strong>ARGUS</strong><small>AI</small></Link><p>Enterprise Multimodal Knowledge Intelligence Platform<br /><span>Current build: local analytics prototype</span></p><Link href="/settings">System status <ArrowUpRight size={14} /></Link></footer>
   </main>;
 }

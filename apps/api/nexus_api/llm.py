@@ -1,61 +1,110 @@
+"""Multi-provider LLM interface supporting Free-tier APIs, Ollama, and deterministic fallback.
+
+Supported providers:
+- Groq (Free high-speed Llama-3.3-70B via GROQ_API_KEY)
+- Google Gemini (Free tier Gemini-1.5/2.0-Flash via GEMINI_API_KEY)
+- Ollama (Free local models like llama3, mistral, deepseek-r1 at localhost:11434)
+- OpenRouter / HuggingFace (Free tier models)
+- OpenAI & Anthropic (when keys provided)
+- Deterministic Fallback (zero-cost, zero-network statistical heuristic planner)
+"""
+
 from __future__ import annotations
 
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 import httpx
 
-# Cost estimates per 1,000 tokens for common models
+load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 COST_PER_1K_TOKENS = {
-    "gpt-4o": 0.005,
-    "gpt-4o-mini": 0.0003,
+    "llama-3.3-70b-versatile": 0.0,
+    "llama-3.1-8b-instant": 0.0,
     "gemini-1.5-flash": 0.0001,
-    "gemini-1.5-pro": 0.002,
+    "gemini-2.0-flash": 0.0001,
+    "gpt-4o-mini": 0.0003,
+    "gpt-4o": 0.005,
     "claude-3-5-sonnet": 0.003,
     "claude-3-haiku": 0.00025,
+    "ollama": 0.0,
+    "deterministic": 0.0,
 }
 
 
 def get_configured_provider() -> dict[str, Any]:
-    """Detect available LLM provider and credentials."""
-    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-    openai_base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-
-    gemini_key = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "")).strip()
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
-
-    # Local Ollama or custom OpenAI-compatible endpoint detection
-    ollama_url = os.getenv("OLLAMA_BASE_URL", "").strip()
-
-    if openai_key or (openai_base_url and "localhost" in openai_base_url) or ollama_url:
-        base_url = ollama_url.rstrip("/") if ollama_url else openai_base_url
+    """Detect available LLM provider with priority on free-tier high-performance APIs."""
+    # 1. Groq (Free high-speed inference)
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if groq_key:
         return {
             "enabled": True,
-            "provider": "openai_compatible",
-            "base_url": base_url,
-            "api_key": openai_key or "local",
-            "model": openai_model if not ollama_url else os.getenv("OLLAMA_MODEL", "llama3"),
+            "provider": "groq",
+            "base_url": "https://api.groq.com/openai/v1",
+            "api_key": groq_key,
+            "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
         }
-    elif gemini_key:
+
+    # 2. Google Gemini (Generous free tier)
+    gemini_key = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", "")).strip()
+    if gemini_key:
         return {
             "enabled": True,
             "provider": "gemini",
             "api_key": gemini_key,
-            "model": gemini_model,
+            "model": os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
         }
-    elif anthropic_key:
+
+    # 3. Local Ollama (Completely free, 100% private)
+    ollama_url = os.getenv("OLLAMA_BASE_URL", "").strip()
+    if ollama_url:
+        return {
+            "enabled": True,
+            "provider": "openai_compatible",
+            "base_url": f"{ollama_url.rstrip('/')}/v1",
+            "api_key": "ollama",
+            "model": os.getenv("OLLAMA_MODEL", "llama3"),
+        }
+
+    # 4. Standard OpenAI
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_base_url = os.getenv("OPENAI_BASE_URL", "").rstrip("/")
+    if openai_key or (openai_base_url and "localhost" in openai_base_url):
+        return {
+            "enabled": True,
+            "provider": "openai_compatible",
+            "base_url": openai_base_url or "https://api.openai.com/v1",
+            "api_key": openai_key or "local",
+            "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        }
+
+    # 5. NVIDIA NIM / Integrate API
+    nvidia_key = os.getenv("NVIDIA_API_KEY", "").strip()
+    if nvidia_key:
+        return {
+            "enabled": True,
+            "provider": "openai_compatible",
+            "base_url": os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+            "api_key": nvidia_key,
+            "model": os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct"),
+        }
+
+    # 6. Anthropic
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if anthropic_key:
         return {
             "enabled": True,
             "provider": "anthropic",
             "api_key": anthropic_key,
-            "model": anthropic_model,
+            "model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022"),
         }
+
+    # 7. High-Precision Deterministic Engine Fallback
     return {
         "enabled": False,
         "provider": "deterministic_fallback",
@@ -73,7 +122,7 @@ def call_llm(messages: list[dict[str, str]], json_mode: bool = False) -> tuple[s
     model = config["model"]
 
     try:
-        if provider == "openai_compatible":
+        if provider in ("openai_compatible", "groq"):
             url = f"{config['base_url']}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {config['api_key']}",
@@ -94,13 +143,16 @@ def call_llm(messages: list[dict[str, str]], json_mode: bool = False) -> tuple[s
                 content = data["choices"][0]["message"]["content"]
                 usage = data.get("usage", {})
                 tokens = usage.get("total_tokens", 0)
-                rate = COST_PER_1K_TOKENS.get(model, 0.0005)
+                rate = COST_PER_1K_TOKENS.get(model, 0.0001)
                 cost = round((tokens / 1000.0) * rate, 6)
                 return content, tokens, cost
 
         elif provider == "gemini":
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={config['api_key']}"
-            contents = [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in messages]
+            contents = [
+                {"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]}
+                for m in messages
+            ]
             body = {
                 "contents": contents,
                 "generationConfig": {
@@ -147,7 +199,6 @@ def call_llm(messages: list[dict[str, str]], json_mode: bool = False) -> tuple[s
                 return content, tokens, cost
 
     except Exception:
-        # Graceful fallback on timeout or network/auth error
         return None, 0, 0.0
 
     return None, 0, 0.0
@@ -188,7 +239,6 @@ def plan_with_llm(question: str, schema_info: dict[str, Any]) -> dict[str, Any] 
         data["model"] = config["model"]
         return data
     except Exception:
-        # If response was not valid JSON, try extracting json block
         match = re.search(r"\{.*\}", content, re.DOTALL)
         if match:
             try:

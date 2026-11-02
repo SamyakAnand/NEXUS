@@ -140,6 +140,17 @@ class ReportRecord(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class InquiryRecord(Base):
+    __tablename__ = "inquiries"
+
+    id = Column(String(64), primary_key=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False)
+    subject = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 # Engine setup with fallback
 def _get_engine():
     try:

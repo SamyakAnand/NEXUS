@@ -10,6 +10,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,10 +22,17 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .analysis import execute_custom_sql, run_analysis
 from .cleaning import clean_frame, inspect_cleaning_issues, json_records
+from .connectors import (
+    APIPaginationConfig,
+    FileConnector,
+    RESTAPIConnector,
+    SQLDatabaseConnector,
+)
 from .db import (
     AnalysisRunRecord,
     DATABASE_URL,
     DatasetRecord,
+    InquiryRecord,
     ReportRecord,
     SessionLocal,
     init_db,
@@ -28,13 +40,23 @@ from .db import (
 from .demo import ensure_demo_file
 from .evaluation import CASES, run_evaluation
 from .llm import get_configured_provider
-from .profiling import profile_frame
+from .profiling import build_dataset_overview, profile_frame
 from .schemas import (
     AnalysisRequest,
     AnalysisResponse,
+    APIConnectRequest,
     CleaningRequest,
+    ContactRequest,
+    DBConnectRequest,
+    ReconciliationRequest,
     SqlQueryRequest,
     SqlQueryResponse,
+)
+from .semantic import (
+    ConflictResolver,
+    CrossSourceMatcher,
+    LineageTracker,
+    SemanticModelEngine,
 )
 
 DATA_DIR = Path(os.getenv("NEXUS_DATA_DIR", "/tmp/nexus-data" if os.getenv("VERCEL") else "data"))
@@ -76,15 +98,11 @@ runs: dict[str, dict[str, Any]] = {}
 
 def _read_frame(path: Path, suffix: str) -> pd.DataFrame:
     try:
-        if suffix == ".csv":
-            return pd.read_csv(path, nrows=1_000_000)
-        if suffix == ".xlsx":
-            return pd.read_excel(path, nrows=1_000_000)
-        if suffix == ".json":
-            return pd.read_json(path, orient="records")
+        content = path.read_bytes()
+        connector = FileConnector(content, path.name)
+        return connector.ingest(max_records=1_000_000)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Unable to parse {suffix.upper()} data: {exc}") from exc
-    raise HTTPException(status_code=415, detail="Supported formats are CSV, XLSX, and JSON.")
 
 
 def _register(
@@ -268,8 +286,12 @@ def health() -> dict[str, Any]:
 @app.post("/datasets/upload")
 async def upload_dataset(file: UploadFile = File(...)) -> dict[str, Any]:
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".csv", ".xlsx", ".json"}:
-        raise HTTPException(status_code=415, detail="Supported formats are CSV, XLSX, and JSON.")
+    allowed_suffixes = {".csv", ".tsv", ".tab", ".xlsx", ".xls", ".json", ".jsonl", ".ndjson", ".parquet", ".pq", ".xml"}
+    if suffix not in allowed_suffixes:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Supported formats are CSV, TSV, XLSX, JSON, JSONL, Parquet, and XML (got {suffix}).",
+        )
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if not content or len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -294,6 +316,50 @@ def get_dataset(dataset_id: str) -> dict[str, Any]:
     if dataset_id not in datasets:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     return {k: v for k, v in datasets[dataset_id].items() if k != "storage"}
+
+
+@app.get("/datasets/{dataset_id}/overview")
+def get_dataset_overview_endpoint(dataset_id: str) -> dict[str, Any]:
+    """Return comprehensive deterministic dataset overview, data quality report, and multi-visualizations."""
+    if dataset_id not in frames:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    meta = datasets.get(dataset_id, {})
+    name = meta.get("name", dataset_id)
+    overview = build_dataset_overview(dataset_id, name, frames[dataset_id])
+    return overview.model_dump()
+
+
+
+@app.get("/datasets/{dataset_id}/preview")
+def preview_dataset_data(dataset_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """Return raw table rows, schema column metadata, and intelligent question suggestions."""
+    if dataset_id not in frames:
+        raise HTTPException(status_code=404, detail="Dataset not found.")
+    frame = frames[dataset_id]
+    total_rows = len(frame)
+    subset = frame.iloc[offset : offset + limit]
+    clean_rows = subset.replace({float("nan"): None, float("inf"): None, float("-inf"): None}).to_dict(orient="records")
+
+    profile_cols = {c["name"]: c for c in datasets[dataset_id]["profile"]["columns"]}
+    columns = [
+        {
+            "name": str(col),
+            "dtype": str(frame[col].dtype),
+            "semantic_type": profile_cols.get(str(col), {}).get("semantic_type", "text"),
+        }
+        for col in frame.columns
+    ]
+
+    return {
+        "dataset_id": dataset_id,
+        "name": datasets[dataset_id]["name"],
+        "total_rows": total_rows,
+        "offset": offset,
+        "limit": limit,
+        "columns": columns,
+        "rows": clean_rows,
+        "suggested_questions": datasets[dataset_id]["profile"].get("suggested_questions", []),
+    }
 
 
 @app.get("/datasets/{dataset_id}/export")
@@ -527,3 +593,191 @@ def execute_evaluations() -> dict[str, Any]:
 def analysis_profile(run_id: str) -> dict[str, Any]:
     run = get_analysis(run_id)
     return profile_frame(frames[run["dataset_id"]])
+
+
+@app.post("/contact")
+def submit_contact_inquiry(req: ContactRequest) -> dict[str, Any]:
+    inquiry_id = str(uuid.uuid4())
+    try:
+        with SessionLocal() as db:
+            rec = InquiryRecord(
+                id=inquiry_id,
+                name=req.name,
+                email=req.email,
+                subject=req.subject,
+                message=req.message,
+            )
+            db.add(rec)
+            db.commit()
+    except Exception:
+        pass
+    return {"status": "success", "inquiry_id": inquiry_id, "message": "Inquiry recorded successfully"}
+
+
+# ---------------------------------------------------------
+# Multi-Source Connectors & Semantic Architecture Endpoints
+# ---------------------------------------------------------
+
+
+@app.post("/sources/preview-api")
+def preview_rest_api_source(req: APIConnectRequest) -> dict[str, Any]:
+    """Test and preview records from a REST API endpoint without ingestion."""
+    pag_config = APIPaginationConfig(
+        type=req.pagination_type,
+        page_param=req.page_param,
+        limit_param=req.limit_param,
+        page_size=req.page_size,
+        max_pages=1,
+        max_records=10,
+    )
+    connector = RESTAPIConnector(
+        url=req.url,
+        method=req.method,
+        headers=req.headers,
+        auth_type=req.auth_type,
+        auth_token=req.auth_token,
+        auth_header=req.auth_header,
+        params=req.params,
+        body=req.body,
+        nested_records_path=req.nested_records_path,
+        pagination=pag_config,
+    )
+    ok, message = connector.test_connection()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"API connection failed: {message}")
+
+    preview = connector.preview(limit=10)
+    return preview.model_dump()
+
+
+@app.post("/sources/connect-api")
+def connect_rest_api_source(req: APIConnectRequest) -> dict[str, Any]:
+    """Ingest REST API endpoint into an analytical dataset."""
+    pag_config = APIPaginationConfig(
+        type=req.pagination_type,
+        page_param=req.page_param,
+        limit_param=req.limit_param,
+        page_size=req.page_size,
+        max_pages=req.max_pages,
+        max_records=req.max_records,
+    )
+    connector = RESTAPIConnector(
+        url=req.url,
+        method=req.method,
+        headers=req.headers,
+        auth_type=req.auth_type,
+        auth_token=req.auth_token,
+        auth_header=req.auth_header,
+        params=req.params,
+        body=req.body,
+        nested_records_path=req.nested_records_path,
+        pagination=pag_config,
+    )
+    try:
+        df = connector.ingest(max_records=req.max_records)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to ingest API data: {str(exc)}") from exc
+
+    if df.empty:
+        raise HTTPException(status_code=422, detail="API returned zero usable records.")
+
+    digest = hashlib.sha256(f"{req.url}-{time.time()}".encode("utf-8")).hexdigest()[:16]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", req.name)[:80]
+    parquet_path = UPLOAD_DIR / f"{digest}-{safe_name}.parquet"
+    df.to_parquet(parquet_path, index=False)
+
+    record = _register(digest, req.name, parquet_path, ".parquet")
+    return {k: v for k, v in record.items() if k != "storage"}
+
+
+@app.post("/sources/preview-db")
+def preview_database_source(req: DBConnectRequest) -> dict[str, Any]:
+    """Test connection and preview tables/data in an external SQL database."""
+    connector = SQLDatabaseConnector(
+        connection_url=req.connection_url,
+        query=req.query,
+        table_name=req.table_name,
+    )
+    ok, message = connector.test_connection()
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Database connection failed: {message}")
+
+    tables = connector.list_tables()
+    preview_data = None
+    if req.table_name or req.query:
+        preview_data = connector.preview(limit=10).model_dump()
+
+    return {
+        "status": "connected",
+        "message": message,
+        "available_tables": tables,
+        "preview": preview_data,
+    }
+
+
+@app.post("/sources/connect-db")
+def connect_database_source(req: DBConnectRequest) -> dict[str, Any]:
+    """Extract table or query result from SQL database into an analytical dataset."""
+    connector = SQLDatabaseConnector(
+        connection_url=req.connection_url,
+        query=req.query,
+        table_name=req.table_name,
+    )
+    try:
+        df = connector.ingest(max_records=req.max_records)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Database extraction failed: {str(exc)}") from exc
+
+    if df.empty:
+        raise HTTPException(status_code=422, detail="Query returned zero records.")
+
+    digest = hashlib.sha256(f"{req.connection_url}-{req.table_name or req.query}-{time.time()}".encode("utf-8")).hexdigest()[:16]
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", req.name)[:80]
+    parquet_path = UPLOAD_DIR / f"{digest}-{safe_name}.parquet"
+    df.to_parquet(parquet_path, index=False)
+
+    record = _register(digest, req.name, parquet_path, ".parquet")
+    return {k: v for k, v in record.items() if k != "storage"}
+
+
+@app.get("/sources/relationships")
+def get_source_relationships() -> dict[str, Any]:
+    """Detect cross-source entities, join keys, and classify Fact vs Dimension tables."""
+    joins = CrossSourceMatcher.find_relationships(frames)
+    classifications = [
+        SemanticModelEngine.classify_dataset(d_id, datasets[d_id]["name"], frames[d_id]).model_dump()
+        for d_id in frames
+    ]
+    return {
+        "relationships": [j.model_dump() for j in joins],
+        "classifications": classifications,
+    }
+
+
+@app.get("/sources/lineage")
+def get_source_lineage() -> dict[str, Any]:
+    """Trace end-to-end data provenance DAG from sources to models and analyses."""
+    joins = CrossSourceMatcher.find_relationships(frames)
+    lineage = LineageTracker.build_lineage(datasets, runs, joins)
+    return lineage.model_dump()
+
+
+@app.post("/sources/reconcile")
+def reconcile_sources(req: ReconciliationRequest) -> dict[str, Any]:
+    """Detect conflicting values across two sources for identical join entities."""
+    if req.source_a_id not in frames or req.source_b_id not in frames:
+        raise HTTPException(status_code=404, detail="One or both sources not found.")
+
+    conflicts = ConflictResolver.detect_conflicts(
+        frames[req.source_a_id],
+        frames[req.source_b_id],
+        join_key=req.join_key,
+        compare_columns=req.compare_columns,
+    )
+    return {
+        "source_a": datasets[req.source_a_id]["name"],
+        "source_b": datasets[req.source_b_id]["name"],
+        "join_key": req.join_key,
+        "discrepancies_count": len(conflicts),
+        "discrepancies": [c.model_dump() for c in conflicts],
+    }

@@ -12,3 +12,4 @@ psycopg[binary]>=3.2
 pgvector>=0.3
 redis>=5
 langgraph>=0.2
+python-dotenv>=1.0
