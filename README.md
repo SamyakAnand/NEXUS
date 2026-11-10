@@ -13,7 +13,7 @@ flowchart LR
   API --> I[Validated ingestion]
   I --> P[Profiler]
   P --> PL[Question planner]
-  PL --> T{Select tools]
+  PL --> T{Select tools}
   T --> PY[Pandas / SciPy analysis]
   T --> SQL[Read-only SQL on isolated frame]
   T --> A[Anomaly detection]
