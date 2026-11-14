@@ -153,13 +153,9 @@ class InquiryRecord(Base):
 
 # Engine setup with fallback
 def _get_engine():
-    try:
-        if DATABASE_URL.startswith("sqlite"):
-            return create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-        return create_engine(DATABASE_URL, pool_pre_ping=True)
-    except Exception as exc:
-        # Fallback to local SQLite if connection to Postgres fails
-        return create_engine(DEFAULT_SQLITE_URL, connect_args={"check_same_thread": False})
+    if DATABASE_URL.startswith("sqlite"):
+        return create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    return create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 engine = _get_engine()
@@ -167,15 +163,8 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db() -> None:
-    """Initialize database tables."""
-    global engine, SessionLocal
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as exc:
-        # If external database fails, fallback to SQLite
-        engine = create_engine(DEFAULT_SQLITE_URL, connect_args={"check_same_thread": False})
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        Base.metadata.create_all(bind=engine)
+    """Initialize database tables and surface failures from the configured database."""
+    Base.metadata.create_all(bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:

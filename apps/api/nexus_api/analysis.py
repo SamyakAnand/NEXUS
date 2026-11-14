@@ -11,7 +11,6 @@ import pandas as pd
 from scipy.stats import linregress
 from sklearn.ensemble import IsolationForest
 
-from .gateway import gateway
 from .llm import get_configured_provider, plan_with_llm, synthesize_with_llm
 from .profiling import build_dataset_overview, profile_frame
 from .schemas import (
@@ -528,7 +527,7 @@ def _run_analysis_core(
         )]
 
     # =========================================================================
-    # RESPONSE SYNTHESIS: REMOTE MODEL (NVIDIA / OMNIROUTE / GEMINI) OR DEGRADED
+    # RESPONSE SYNTHESIS: EURI OR DETERMINISTIC FALLBACK
     # =========================================================================
     deterministic_summary = " ".join(f.detail for f in findings[:2])
     answer = deterministic_summary

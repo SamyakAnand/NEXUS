@@ -133,43 +133,40 @@ def _register(
     if transformations:
         record["transformations"] = transformations
 
+    # Persist before publishing the dataset into process-local state.
+    with SessionLocal() as db:
+        existing = db.query(DatasetRecord).filter(DatasetRecord.id == dataset_id).first()
+        if existing:
+            existing.name = name
+            existing.filename = path.name
+            existing.format = suffix.removeprefix(".")
+            existing.storage_path = str(path)
+            existing.row_count = profile["row_count"]
+            existing.column_count = profile["column_count"]
+            existing.profile = profile
+            if derived_from:
+                existing.derived_from = derived_from
+            if transformations:
+                existing.transformations = transformations
+        else:
+            db_record = DatasetRecord(
+                id=dataset_id,
+                name=name,
+                filename=path.name,
+                format=suffix.removeprefix("."),
+                source=record["source"],
+                storage_path=str(path),
+                row_count=profile["row_count"],
+                column_count=profile["column_count"],
+                profile=profile,
+                derived_from=derived_from,
+                transformations=transformations,
+            )
+            db.add(db_record)
+        db.commit()
+
     datasets[dataset_id] = record
     frames[dataset_id] = frame
-
-    # Persist to database
-    try:
-        with SessionLocal() as db:
-            existing = db.query(DatasetRecord).filter(DatasetRecord.id == dataset_id).first()
-            if existing:
-                existing.name = name
-                existing.filename = path.name
-                existing.format = suffix.removeprefix(".")
-                existing.storage_path = str(path)
-                existing.row_count = profile["row_count"]
-                existing.column_count = profile["column_count"]
-                existing.profile = profile
-                if derived_from:
-                    existing.derived_from = derived_from
-                if transformations:
-                    existing.transformations = transformations
-            else:
-                db_record = DatasetRecord(
-                    id=dataset_id,
-                    name=name,
-                    filename=path.name,
-                    format=suffix.removeprefix("."),
-                    source=record["source"],
-                    storage_path=str(path),
-                    row_count=profile["row_count"],
-                    column_count=profile["column_count"],
-                    profile=profile,
-                    derived_from=derived_from,
-                    transformations=transformations,
-                )
-                db.add(db_record)
-            db.commit()
-    except Exception:
-        pass
 
     # Keep file manifest for compatibility
     try:
@@ -182,38 +179,33 @@ def _register(
 
 
 def _restore() -> None:
-    # 1. Initialize DB schema
-    try:
-        init_db()
-    except Exception:
-        pass
+    # Fail startup when the configured database cannot be initialized. Continuing
+    # with local files would make the service appear healthy while losing writes.
+    init_db()
 
     # 2. Restore from DB if records exist
     restored_from_db = False
-    try:
-        with SessionLocal() as db:
-            db_datasets = db.query(DatasetRecord).all()
-            for record in db_datasets:
-                source = Path(record.storage_path)
-                if source.exists():
-                    try:
-                        _register(
-                            record.id,
-                            record.name,
-                            source,
-                            "." + record.format,
-                            record.derived_from,
-                            record.transformations,
-                        )
-                        restored_from_db = True
-                    except Exception:
-                        continue
+    with SessionLocal() as db:
+        db_datasets = db.query(DatasetRecord).all()
+        for record in db_datasets:
+            source = Path(record.storage_path)
+            if source.exists():
+                try:
+                    _register(
+                        record.id,
+                        record.name,
+                        source,
+                        "." + record.format,
+                        record.derived_from,
+                        record.transformations,
+                    )
+                    restored_from_db = True
+                except (OSError, ValueError):
+                    continue
 
-            db_runs = db.query(AnalysisRunRecord).all()
-            for run_rec in db_runs:
-                runs[run_rec.id] = run_rec.to_dict()
-    except Exception:
-        pass
+        db_runs = db.query(AnalysisRunRecord).all()
+        for run_rec in db_runs:
+            runs[run_rec.id] = run_rec.to_dict()
 
     # 3. Fallback to file manifest if DB was empty
     if not restored_from_db:
@@ -465,32 +457,29 @@ def create_analysis(request: AnalysisRequest) -> AnalysisResponse:
         raise HTTPException(status_code=404, detail="Dataset not found.")
     result = run_analysis(request.dataset_id, frames[request.dataset_id], request.question)
     payload = result.model_dump(mode="json")
-    runs[result.run_id] = payload
 
-    # Persist run to SQLite/PostgreSQL
-    try:
-        with SessionLocal() as db:
-            run_rec = AnalysisRunRecord(
-                id=result.run_id,
-                dataset_id=result.dataset_id,
-                question=result.question,
-                answer=result.answer,
-                selected_tools=result.tools,
-                findings=[f.model_dump() for f in result.findings],
-                profile_summary=result.profile_summary,
-                visualization=result.visualization,
-                visualizations=result.visualizations,
-                trace=[t.model_dump() for t in result.trace],
-                latency_ms=result.latency_ms,
-                token_usage=result.token_usage,
-                estimated_cost_usd=result.estimated_cost_usd,
-                model_name=result.model_name,
-                validation=result.validation,
-            )
-            db.add(run_rec)
-            db.commit()
-    except Exception:
-        pass
+    with SessionLocal() as db:
+        run_rec = AnalysisRunRecord(
+            id=result.run_id,
+            dataset_id=result.dataset_id,
+            question=result.question,
+            answer=result.answer,
+            selected_tools=result.tools,
+            findings=[f.model_dump() for f in result.findings],
+            profile_summary=result.profile_summary,
+            visualization=result.visualization,
+            visualizations=result.visualizations,
+            trace=[t.model_dump() for t in result.trace],
+            latency_ms=result.latency_ms,
+            token_usage=result.token_usage,
+            estimated_cost_usd=result.estimated_cost_usd,
+            model_name=result.model_name,
+            validation=result.validation,
+        )
+        db.add(run_rec)
+        db.commit()
+
+    runs[result.run_id] = payload
 
     # Save to disk run dir
     try:
@@ -561,14 +550,10 @@ def generate_report(run_id: str) -> str:
     ]
     report_text = "\n".join(lines)
 
-    # Persist report
-    try:
-        with SessionLocal() as db:
-            rep = ReportRecord(id=str(uuid.uuid4()), run_id=run_id, format="markdown", content=report_text)
-            db.add(rep)
-            db.commit()
-    except Exception:
-        pass
+    with SessionLocal() as db:
+        rep = ReportRecord(id=str(uuid.uuid4()), run_id=run_id, format="markdown", content=report_text)
+        db.add(rep)
+        db.commit()
 
     return report_text
 

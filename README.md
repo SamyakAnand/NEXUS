@@ -86,7 +86,7 @@ The web app is served on port 3000 and FastAPI on port 8000. PostgreSQL with pgv
 
 ## Evaluation
 
-The starter evaluation suite measures retrieval Recall@K, Precision@K, and MRR on small, deterministic metadata retrieval examples. Analysis cases check tool routing and calculation invariants against generated fixture data. Latency is measured at runtime; token usage and cost are reported as unavailable until a model provider is configured. No unmeasured performance metrics are published.
+The starter evaluation suite measures retrieval Recall@K, Precision@K, and MRR on small, deterministic metadata retrieval examples. Analysis cases check tool routing and calculation invariants against generated fixture data. The backend supports one Euron EURI provider through `EURI_API_KEY` and `EURI_MODEL`; if the key is absent, analysis remains deterministic. Token usage is included only when returned by the provider. Cost is not estimated by NEXUS. Live provider access requires a valid rotated key.
 
 ## Security and data handling
 

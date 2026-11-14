@@ -1,33 +1,15 @@
-# Provider and Model Capability Report
+# Euron EURI Provider
 
-**Checked:** 2026-10-14 (Asia/Kolkata)  
-**Method:** Read-only authenticated model-catalog requests from the local environment plus official provider model documentation. No completion/generation requests were made. Secrets were never displayed.
+NEXUS uses one hosted model integration: Euron's EURI API, configured with `EURI_API_KEY`. The Euron Code product documents EURI as an OpenAI-compatible provider and exposes it under that provider name ([Euron Code provider documentation](https://euron.one/code-agent)). The adapter uses the EURI chat-completions URL `https://api.euron.one/api/v1/euri/chat/completions` and defaults to `gemini-2.5-flash`; both can be changed only through the single EURI configuration.
 
-## Local configuration and endpoint checks
+## Configuration
 
-| Provider | Configuration state | Safe check | Result | What remains unverified |
-|---|---|---|---|---|
-| Google Gemini | API key present; configured model `gemini-3.5-flash` | `GET https://generativelanguage.googleapis.com/v1beta/models` | HTTP 200; configured model appears in catalog. Catalog reports `generateContent`, `countTokens`, caching, and batch generation methods. | A catalog read does not prove `generateContent` permission, account tier, current quota, or a successful inference. No generation was called. |
-| NVIDIA NIM | API key present; configured model `meta/llama-3.3-70b-instruct` | `GET https://integrate.api.nvidia.com/v1/models` | HTTP 200; 80 IDs returned. Configured ID absent. Catalog includes `meta/llama-3.2-11b-vision-instruct` and `meta/llama-3.2-90b-vision-instruct`. | No completion call; configured model availability is not verified. Per-account limits and current inference health were not established. |
-| OmniRoute | API key/base URL absent | No endpoint call | Not configured. | Base URL, model, auth, access, capabilities, quotas and terms. |
+Set `EURI_API_KEY` in the backend environment. Never put the key in frontend code or commit it. Set `EURI_MODEL` to a model available to the EURI account; the default is `gemini-2.5-flash`. If no key is set, NEXUS uses its deterministic analysis path. Legacy provider variables are ignored.
 
-The current `llm.py` provider selector checks Gemini before NVIDIA, so with both keys set it selects Gemini. `analysis.py` uses this selector for narrative synthesis. The imported `gateway` is not invoked. A separate `gateway.py` prioritizes NVIDIA, then OmniRoute, then Gemini, creating inconsistent provider selection. No automatic provider failover should be claimed from these checks.
+The EURI service is OpenAI-compatible, but account permissions, model access, quotas, and billing are account-specific. NEXUS reports token usage only when the service includes it in the response. It does not estimate or display a cost without returned billing evidence.
 
-## Verified capability details
+## Credential incident and verification
 
-| Model | Access evidence | Input / output | Context and limits | Assessment |
-|---|---|---|---|---|
-| `gemini-3.5-flash` | Present in authenticated catalog (HTTP 200). | Text, image, video, audio, PDF / text. | 1,048,576 input tokens; 65,536 output tokens. | Strong documented multimodal candidate. Exact project RPM/TPM/RPD limits are account-specific and must be read in AI Studio. |
-| `meta/llama-3.3-70b-instruct` | Not present in returned NVIDIA catalog (HTTP 200). | Unknown for this configured endpoint/model ID. | Unknown. | Do not use until corrected and reverified. |
-| `meta/llama-3.2-11b-vision-instruct` | Present in NVIDIA catalog. | Text + image / text. | NVIDIA model card reports 131K context. | Multimodal candidate; not the configured ID. No inference request was made. |
+A smoke request was mistakenly sent to the similarly named Euri G2 host before the provider distinction was established. The submitted key was in the request's authorization header. The key was removed from the local `.env` and must be revoked and replaced before enabling remote inference. No dataset content was sent; the request contained only a short health-check prompt. No successful inference against Euron EURI has been verified.
 
-Official provider references:
-
-- [Gemini 3.5 Flash model card](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash) — supported input types, output type, context and output limits.
-- [Gemini API rate limits](https://ai.google.dev/gemini-api/docs/rate-limits) — limits vary by project/tier and exact active limits are surfaced in AI Studio; therefore no fixed RPM/TPM/RPD is asserted here.
-- [NVIDIA NIM model card: Llama 3.2 11B Vision](https://build.nvidia.com/meta/llama-3.2-11b-vision-instruct) — text/image input, text output and 131K context.
-- [NVIDIA NIM multimodal API reference](https://docs.api.nvidia.com/nim/reference/multimodal-apis) — documents the vision endpoint family.
-
-## Implementation gate
-
-Before enabling generation, confirm the intended model, inference permission, project billing tier and active rate limits in the provider console; set request timeout/output caps and cost policy; and run one deliberately bounded smoke request against non-sensitive synthetic content. Keep text/image-specific payload support behind adapter capability declarations. Never send uploaded/private content in a provider health check. Do not infer OCR, chart/table extraction, or grounding quality from general image input support; evaluate those separately on labeled examples.
+The backend adapter and tests now target the Euron EURI endpoint, but live connectivity remains unverified until a rotated key is configured. Keep smoke checks limited to synthetic prompts and avoid logging authorization headers or provider error bodies.
